@@ -54,7 +54,10 @@ mod tests {
 
     #[test]
     fn finds_bot_token() {
-        let t = concat!("tok=xox", "b-1234567890-1234567890-abcDEFghIJKlmNOPqrsTUvwx end");
+        let t = concat!(
+            "tok=xox",
+            "b-1234567890-1234567890-abcDEFghIJKlmNOPqrsTUvwx end"
+        );
         let m = scan(t);
         assert_eq!(m.len(), 1);
         assert_eq!(m[0].kind, DlpMatchKind::SlackToken);
