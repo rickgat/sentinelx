@@ -1,0 +1,143 @@
+{
+  "id": "audit_chain_compromise",
+  "name": "Audit Hash-Chain Compromise",
+  "summary": "Tamper-evident audit chain has reported chain_verified=false. Tampered rows in the tenant chain invalidate the SOC2 / GDPR / PDP trust boundary; this runbook drives the first 15 minutes of response per NIST SP 800-61 Rev 2 and triggers regulator notification timers (GDPR 72h, PDP 24h).",
+  "steps": [
+    {
+      "id": "prep-tsa-cert-validity",
+      "phase": "preparation",
+      "title": "Confirm TSA cert validity + pinned CA chain",
+      "description": "Verify the per-tenant RFC 3161 TSA certificate has not expired and that the pinned CA cert under audit.chain.pinned_ca_pem is reachable. Without a valid TSA anchor the recovery step cannot prove a last-good period.",
+      "default_owner_role": "incident_commander",
+      "evidence_hints": ["audit anchor list (GET /v1/audit/anchors)", "pinned_ca expiry date"]
+    },
+    {
+      "id": "prep-last-good-baseline",
+      "phase": "preparation",
+      "title": "Baseline last good TSA-verified period",
+      "description": "From the audit_anchor_runs table, identify the latest run with verified=true. This (run_id, anchored_at) pair is the trust boundary the recovery phase will restore against.",
+      "default_owner_role": "incident_commander",
+      "evidence_hints": ["last verified anchor run_id", "anchored_at timestamp"]
+    },
+    {
+      "id": "prep-oncall-rotation",
+      "phase": "preparation",
+      "title": "Page on-call IR + legal counsel",
+      "description": "Page primary IR engineer, security on-call manager, and outside legal counsel via the configured rotation (see docs/runbooks/audit-chain-compromise.md §Communication). Spin up the dedicated #ir-audit-chain channel.",
+      "default_owner_role": "incident_commander",
+      "evidence_hints": ["pager dispatch id", "channel link"]
+    },
+    {
+      "id": "detect-reverify-chain",
+      "phase": "detection_analysis",
+      "title": "Re-verify the chain via verify_chain_snapshot",
+      "description": "Run sx-cli audit verify --signing-key-env <env> --source <dump> on a fresh export of the hot tail. Confirm the break is reproducible and capture the failing (seq, expected_hash, actual_hash) triple. Also call POST /v1/audit/anchors/verify/{last_run} to confirm whether the TSA-anchored Merkle root still holds.",
+      "default_owner_role": "soc_analyst",
+      "evidence_hints": ["sx-cli verify JSON output", "anchor verify response"]
+    },
+    {
+      "id": "detect-tampered-range",
+      "phase": "detection_analysis",
+      "title": "Identify tampered row range",
+      "description": "Map every audit row whose seq is at or above the break seq into the suspect range. Pull the prior 100 rows for context. Snapshot the IDs and the cumulative byte size before they can be re-written.",
+      "default_owner_role": "soc_analyst",
+      "evidence_hints": ["break_seq", "row id range", "row count"]
+    },
+    {
+      "id": "detect-start-regulator-timer",
+      "phase": "detection_analysis",
+      "title": "Start regulator notification timers",
+      "description": "Mark t0 as the moment chain_verified=false was confirmed (NOT when it was first observed). Configure timers: GDPR Art. 33 (72h), Indonesia PDP (24h), customer contractual notice (per MSA, usually 24-72h). The DPO owns the clock.",
+      "default_owner_role": "data_protection_officer",
+      "evidence_hints": ["t0 timestamp", "regulator deadline matrix"]
+    },
+    {
+      "id": "contain-trip-kill-switch",
+      "phase": "containment_eradication_recovery",
+      "title": "Trip the engagement kill switch",
+      "description": "POST /v1/safety/kill-switch with reason='audit_chain_compromise'. Halts every active engagement/scan/autonomous remediation so the tampered window does not grow while forensics is in progress.",
+      "default_owner_role": "incident_commander",
+      "evidence_hints": ["kill switch ack id"]
+    },
+    {
+      "id": "contain-block-audit-writes",
+      "phase": "containment_eradication_recovery",
+      "title": "Block new audit writes via feature flag",
+      "description": "Flip SX_AUDIT_WRITES_FROZEN=1 in the runtime config (or call the admin endpoint). The audit recorder honours the flag and returns 503 ServiceUnavailable for every append. This MUST happen before pg_basebackup so the backup captures a stable trailing offset.",
+      "default_owner_role": "infrastructure_lead",
+      "evidence_hints": ["feature flag toggle id"]
+    },
+    {
+      "id": "contain-pg-basebackup",
+      "phase": "containment_eradication_recovery",
+      "title": "Snapshot Postgres WAL via pg_basebackup",
+      "description": "Capture a write-ahead-log + base backup with `pg_basebackup -D /var/forensics/audit-$(date +%s) -X stream -P -v`. Encrypt and ship to the immutable forensics bucket (s3://sentinelx-forensics/ with Object-Lock COMPLIANCE mode).",
+      "default_owner_role": "infrastructure_lead",
+      "evidence_hints": ["s3 object key", "sha256 of backup"]
+    },
+    {
+      "id": "eradicate-document-chain-of-custody",
+      "phase": "containment_eradication_recovery",
+      "title": "Document evidence chain-of-custody",
+      "description": "Open a chain-of-custody record (one per artifact: pg_basebackup, sx-cli verify dump, anchor reply, system journal). Each entry: collector name, collection ts, sha256, storage URI, witness signature.",
+      "default_owner_role": "forensics_lead",
+      "evidence_hints": ["custody record ids"]
+    },
+    {
+      "id": "eradicate-root-cause-trigger",
+      "phase": "containment_eradication_recovery",
+      "title": "Trigger root-cause analysis",
+      "description": "Spin up an RCA ticket. Top hypotheses: (a) compromised DB superuser credential, (b) signing key leak from KMS, (c) bug in the recorder's seq monotonicity guard, (d) corrupted disk causing torn writes. Each hypothesis MUST have an assigned investigator + a kill-or-confirm deadline.",
+      "default_owner_role": "forensics_lead",
+      "evidence_hints": ["RCA ticket id", "hypothesis owners"]
+    },
+    {
+      "id": "recover-restore-last-good",
+      "phase": "containment_eradication_recovery",
+      "title": "Restore from last TSA-verified period",
+      "description": "Using the baseline from `prep-last-good-baseline`, restore audit rows up to and including the last verified anchor's covered seq range. Replay events recorded after that point from object storage (per-event WORM copies kept by the recorder).",
+      "default_owner_role": "infrastructure_lead",
+      "evidence_hints": ["restore start/end ts", "replayed seq range"]
+    },
+    {
+      "id": "recover-reanchor",
+      "phase": "containment_eradication_recovery",
+      "title": "Re-anchor the restored chain",
+      "description": "Fire a fresh anchor run against the restored chain via the AnchorRunner. Confirm the new run row carries verified=true and that POST /v1/audit/anchors/verify/{new_run_id} succeeds against the pinned CA. Lift SX_AUDIT_WRITES_FROZEN once the new anchor is persisted.",
+      "default_owner_role": "infrastructure_lead",
+      "evidence_hints": ["new anchor run_id", "verify response"]
+    },
+    {
+      "id": "post-regulator-notification",
+      "phase": "post_incident_activity",
+      "title": "File regulator notifications (GDPR 72h, PDP 24h)",
+      "description": "Send the regulator notification letters using the templates in docs/runbooks/audit-chain-compromise.md (§Templates). GDPR Art. 33: data protection authority + affected data subjects when high risk. Indonesia PDP UU 27/2022 §46: PDP-RI within 24h. Copy outside counsel on every notification.",
+      "default_owner_role": "data_protection_officer",
+      "evidence_hints": ["regulator case numbers", "DPO sign-off"]
+    },
+    {
+      "id": "post-customer-notification",
+      "phase": "post_incident_activity",
+      "title": "Notify affected customers",
+      "description": "Send the customer notification email (template C in the runbook). Include the trust-boundary window (last good ts → recovery ts), the rows affected per tenant, and the remediation status. Set up a follow-up office-hour slot for tier-1 customers.",
+      "default_owner_role": "engagement_manager",
+      "evidence_hints": ["mailing list id", "office-hour calendar"]
+    },
+    {
+      "id": "post-lessons-learned",
+      "phase": "post_incident_activity",
+      "title": "Run a blameless post-mortem",
+      "description": "Within 10 business days. Cover: detection latency, key-rotation hygiene, RBAC of DB superuser, sufficiency of TSA anchoring cadence, and whether the verifier interval (currently 5 min) needs to shrink. Publish the post-mortem to the security wiki and tag the RCA ticket.",
+      "default_owner_role": "incident_commander",
+      "evidence_hints": ["post-mortem doc URL"]
+    },
+    {
+      "id": "post-control-uplift",
+      "phase": "post_incident_activity",
+      "title": "File control-uplift tickets",
+      "description": "One ticket per identified gap; each with an owner and 30/60/90 deadlines. Examples: shorten anchor cadence, add a second TSA, move the signing key to an HSM, narrow the DB superuser blast radius.",
+      "default_owner_role": "incident_commander",
+      "evidence_hints": ["uplift ticket ids"]
+    }
+  ]
+}

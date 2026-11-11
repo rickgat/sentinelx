@@ -1,0 +1,35 @@
+[package]
+name = "sx-collab"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "SentinelX OOB Collaborator: DNS + HTTP + SMTP callback receivers for blind-vuln verification."
+
+[lints]
+workspace = true
+
+[dependencies]
+sx-core = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }
+axum = { workspace = true }
+futures-util = { workspace = true }
+hickory-server = { workspace = true }
+hickory-proto = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+
+[dev-dependencies]
+reqwest = { workspace = true }
+# `test-util` enables `tokio::time::{pause, advance, resume}` for the
+# virtual-clock-based purge-task test.
+tokio = { workspace = true, features = ["test-util"] }

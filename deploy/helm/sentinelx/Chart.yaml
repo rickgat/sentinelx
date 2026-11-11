@@ -1,0 +1,25 @@
+apiVersion: v2
+name: sentinelx
+description: |
+  SentinelX — adversary emulation, risk scoring, and discovery monolith.
+  This chart deploys the sx-monolith service plus optional supporting
+  resources (NetworkPolicy, PodDisruptionBudget, ServiceMonitor, Ingress,
+  one-shot migration Job).
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.27.0-0"
+keywords:
+  - security
+  - adversary-emulation
+  - risk-scoring
+  - sentinelx
+maintainers:
+  - name: SentinelX Platform Team
+    email: platform@sentinelx.example.invalid
+home: https://sentinelx.example.invalid
+sources:
+  - https://github.com/sentinelx/security-check
+icon: https://sentinelx.example.invalid/icon.png
+annotations:
+  category: Security

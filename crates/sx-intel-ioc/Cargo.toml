@@ -1,0 +1,29 @@
+[package]
+name = "sx-intel-ioc"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "SentinelX threat-intel IOC store: sharded bloom filter for O(1) lookup + ClickHouse cold-storage projections."
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+async-trait = { workspace = true }
+reqwest = { workspace = true }
+secrecy = { workspace = true }
+url = { workspace = true }
+tokio = { workspace = true }
+rand = { workspace = true }
+ahash = "0.8"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros", "rt", "rt-multi-thread", "sync", "time"] }
+wiremock = { workspace = true }

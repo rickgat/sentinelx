@@ -1,0 +1,283 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  REGISTRY: ghcr.io
+  IMAGE_NAME: sentinelx/monolith
+  COSIGN_EXPERIMENTAL: "1"
+  # Trivy severity gate — must match verify-release.yml.
+  TRIVY_SEVERITY: CRITICAL,HIGH
+
+# Default to least-privilege. Individual jobs widen as needed.
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build-${{ matrix.target.platform }}
+    runs-on: ${{ matrix.target.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            rust-target: x86_64-unknown-linux-gnu
+            short: amd64
+          - platform: linux/arm64
+            runner: ubuntu-latest
+            rust-target: aarch64-unknown-linux-gnu
+            short: arm64
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4 # renovate: pin actions/checkout
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable # renovate: pin dtolnay/rust-toolchain
+        with:
+          targets: ${{ matrix.target.rust-target }}
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2 # renovate: pin Swatinem/rust-cache
+        with:
+          shared-key: release-${{ matrix.target.short }}
+
+      - name: Install cross-compilation toolchain (arm64)
+        if: matrix.target.short == 'arm64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          mkdir -p .cargo
+          cat <<'EOF' >> .cargo/config.toml
+          [target.aarch64-unknown-linux-gnu]
+          linker = "aarch64-linux-gnu-gcc"
+          EOF
+
+      - name: cargo build --release -p sx-monolith
+        run: cargo build --release --locked --target ${{ matrix.target.rust-target }} -p sx-monolith
+
+      - name: Stage binary for docker context
+        run: |
+          mkdir -p dist/${{ matrix.target.short }}
+          cp target/${{ matrix.target.rust-target }}/release/sx-monolith dist/${{ matrix.target.short }}/
+
+      - name: Upload arch binary artifact
+        uses: actions/upload-artifact@v4 # renovate: pin actions/upload-artifact
+        with:
+          name: sx-monolith-${{ matrix.target.short }}
+          path: dist/${{ matrix.target.short }}/sx-monolith
+          retention-days: 7
+
+  image:
+    name: image + sign + sbom + scan
+    needs: build
+    runs-on: ubuntu-latest
+    # Narrowly scoped: build + push to GHCR, mint OIDC token for cosign,
+    # produce SBOM attestation, and create the GitHub Release.
+    permissions:
+      contents: write         # softprops/action-gh-release
+      packages: write         # push to ghcr.io
+      id-token: write         # cosign keyless via Sigstore Fulcio
+      attestations: write     # SBOM attestation
+      security-events: write  # upload trivy SARIF to Code Scanning
+    outputs:
+      image-digest: ${{ steps.push.outputs.digest }}
+      image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4 # renovate: pin actions/checkout
+
+      - name: Download per-arch build artifacts
+        uses: actions/download-artifact@v4 # renovate: pin actions/download-artifact
+        with:
+          path: dist
+
+      - name: Restructure for buildx multi-arch context
+        run: |
+          ls -laR dist
+          mkdir -p ctx/linux/amd64 ctx/linux/arm64
+          cp dist/sx-monolith-amd64/sx-monolith ctx/linux/amd64/sx-monolith
+          cp dist/sx-monolith-arm64/sx-monolith ctx/linux/arm64/sx-monolith
+          chmod +x ctx/linux/amd64/sx-monolith ctx/linux/arm64/sx-monolith
+          cat > ctx/Dockerfile <<'EOF'
+          # Distroless runtime — no shell, non-root uid 65532.
+          ARG TARGETPLATFORM
+          FROM gcr.io/distroless/cc-debian12:nonroot
+          ARG TARGETPLATFORM
+          COPY ${TARGETPLATFORM}/sx-monolith /usr/local/bin/sx-monolith
+          USER nonroot
+          EXPOSE 8080 9090
+          ENTRYPOINT ["/usr/local/bin/sx-monolith"]
+          EOF
+
+      - name: Set up QEMU (multi-arch emulation)
+        uses: docker/setup-qemu-action@v3 # renovate: pin docker/setup-qemu-action
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3 # renovate: pin docker/setup-buildx-action
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3 # renovate: pin docker/login-action
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5 # renovate: pin docker/metadata-action
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=tag
+            type=sha,prefix=sha-
+
+      - name: Build + push multi-arch image
+        id: push
+        uses: docker/build-push-action@v6 # renovate: pin docker/build-push-action
+        with:
+          context: ctx
+          file: ctx/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: mode=max
+          sbom: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3 # renovate: pin sigstore/cosign-installer
+        with:
+          cosign-release: 'v2.4.0'
+
+      - name: Sign image (keyless via Sigstore OIDC)
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}"
+          cosign sign --yes "$IMAGE"
+
+      - name: Generate SBOM (CycloneDX JSON via syft)
+        uses: anchore/sbom-action@v0 # renovate: pin anchore/sbom-action
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}
+          format: cyclonedx-json
+          output-file: sbom.cdx.json
+          upload-artifact: true
+
+      - name: Attest SBOM via cosign (CycloneDX predicate)
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}"
+          cosign attest --yes --type cyclonedx --predicate sbom.cdx.json "$IMAGE"
+
+      # ---------------------------------------------------------------------
+      # LOW-001 — Cargo-level CycloneDX SBOM + sigstore blob signature.
+      #
+      # The syft SBOM above describes the *container image* (OS packages +
+      # discovered binaries). The cargo SBOM below describes the *Rust
+      # workspace* (every crate transitively pulled in by Cargo.lock). Both
+      # are useful — auditors and downstream consumers expect both.
+      # ---------------------------------------------------------------------
+
+      - name: Install Rust toolchain (for cargo-cyclonedx)
+        uses: dtolnay/rust-toolchain@stable # renovate: pin dtolnay/rust-toolchain
+
+      - name: Install cargo-cyclonedx
+        run: cargo install --locked cargo-cyclonedx
+
+      - name: Generate cargo CycloneDX SBOM
+        # `--all` aggregates every workspace member into a single SBOM.
+        # cargo-cyclonedx names its output `<name>.cdx.json`; we rename to the
+        # canonical filename the release expects.
+        run: |
+          cargo cyclonedx --format json --all --override-filename sbom.cyclonedx
+          # cargo-cyclonedx writes `sbom.cyclonedx.cdx.json` at the workspace
+          # root; rename to the canonical artifact name.
+          if [ -f sbom.cyclonedx.cdx.json ]; then
+            mv sbom.cyclonedx.cdx.json sbom.cyclonedx.json
+          fi
+          ls -la sbom.cyclonedx.json
+
+      - name: Sign cargo SBOM with cosign (keyless OIDC)
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          cosign sign-blob --yes \
+            --output-signature sbom.cyclonedx.json.sig \
+            --output-certificate sbom.cyclonedx.json.pem \
+            sbom.cyclonedx.json
+
+      - name: Trivy CVE scan (gate on CRITICAL,HIGH)
+        # Hard-fails the workflow on any unsuppressed CRITICAL or HIGH finding.
+        # Allowlist exceptions via repo-root .trivyignore.
+        uses: aquasecurity/trivy-action@0.24.0 # renovate: pin aquasecurity/trivy-action
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}
+          format: table
+          severity: ${{ env.TRIVY_SEVERITY }}
+          ignore-unfixed: true
+          exit-code: '1'
+          trivyignores: .trivyignore
+          vuln-type: 'os,library'
+
+      - name: Trivy CVE scan — SARIF (for Code Scanning)
+        if: always()
+        uses: aquasecurity/trivy-action@0.24.0 # renovate: pin aquasecurity/trivy-action
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: ${{ env.TRIVY_SEVERITY }}
+          ignore-unfixed: true
+          trivyignores: .trivyignore
+          vuln-type: 'os,library'
+
+      - name: Upload Trivy SARIF to Code Scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3 # renovate: pin github/codeql-action
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-image
+
+      - name: Generate signed checksums
+        run: |
+          {
+            sha256sum sbom.cdx.json
+            sha256sum sbom.cyclonedx.json
+            sha256sum sbom.cyclonedx.json.sig
+            sha256sum sbom.cyclonedx.json.pem
+            sha256sum dist/sx-monolith-amd64/sx-monolith
+            sha256sum dist/sx-monolith-arm64/sx-monolith
+          } > checksums.txt
+          cosign sign-blob --yes --output-signature checksums.txt.sig --output-certificate checksums.txt.pem checksums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2 # renovate: pin softprops/action-gh-release
+        with:
+          generate_release_notes: true
+          files: |
+            sbom.cdx.json
+            sbom.cyclonedx.json
+            sbom.cyclonedx.json.sig
+            sbom.cyclonedx.json.pem
+            checksums.txt
+            checksums.txt.sig
+            checksums.txt.pem
+            dist/sx-monolith-amd64/sx-monolith
+            dist/sx-monolith-arm64/sx-monolith

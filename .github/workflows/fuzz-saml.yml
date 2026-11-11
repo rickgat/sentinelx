@@ -1,0 +1,138 @@
+name: fuzz-saml
+
+# SAML SP XMLDSig fuzzing (HIGH-003).
+#
+# Runs `saml_response_fuzz` for 6 hours on every PR that touches the
+# SAML SP service module. The job is gated on a path-filter so generic
+# PRs do not pay the 6h cost; security-touching PRs always pay it.
+#
+# Output:
+#   * `cargo fuzz run` exits non-zero on any new panic / hang —
+#     the job fails CI.
+#   * Coverage report is uploaded as a workflow artifact.
+#   * The crash corpus (if any) is uploaded too so the engineer can
+#     reproduce locally with `cargo fuzz run saml_response_fuzz <crash>`.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'crates/sx-iam/src/service/saml/**'
+      - 'crates/sx-iam/fuzz/**'
+      - '.github/workflows/fuzz-saml.yml'
+  workflow_dispatch:
+    inputs:
+      max_total_time:
+        description: 'Fuzz duration (seconds)'
+        required: false
+        default: '21600'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # The fuzz harness contract is "never panic"; we want a fast-fail on
+  # the first adversarial input the engine finds.
+  RUSTFLAGS: -D warnings
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-saml-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fuzz:
+    name: cargo fuzz run saml_response_fuzz (6h)
+    runs-on: ubuntu-latest
+    # Hard ceiling slightly above the 6h fuzz window so the job has
+    # time to upload its artifacts on a 6h fuzz run that hits the wall.
+    timeout-minutes: 400
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: fuzz-saml
+          workspaces: |
+            .
+            crates/sx-iam/fuzz
+
+      - name: Install cargo-fuzz
+        run: cargo install --locked cargo-fuzz
+
+      - name: Build fuzz target
+        working-directory: crates/sx-iam
+        run: cargo +nightly fuzz build saml_response_fuzz
+
+      - name: Run saml_response_fuzz for 6h
+        working-directory: crates/sx-iam
+        env:
+          MAX_TOTAL_TIME: ${{ github.event.inputs.max_total_time || '21600' }}
+        run: |
+          set -euo pipefail
+          # libFuzzer flags:
+          #   -max_total_time   wall-clock budget, 21600s = 6h.
+          #   -timeout=10       single-input hang detector (10 s).
+          #   -rss_limit_mb=2048 abort if memory blows past the cap.
+          #   -print_final_stats=1 emit coverage / corpus stats at end.
+          cargo +nightly fuzz run saml_response_fuzz -- \
+            -max_total_time=${MAX_TOTAL_TIME} \
+            -timeout=10 \
+            -rss_limit_mb=2048 \
+            -print_final_stats=1
+
+      - name: Generate coverage report
+        if: success() || failure()
+        working-directory: crates/sx-iam
+        run: |
+          set -euo pipefail
+          # cargo-fuzz coverage emits LLVM-format .profdata + an HTML
+          # report; we capture both so reviewers can browse uncovered
+          # branches in the PR review.
+          cargo +nightly fuzz coverage saml_response_fuzz || true
+
+      - name: Upload coverage artifact
+        if: success() || failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: saml-fuzz-coverage
+          path: |
+            crates/sx-iam/fuzz/coverage/saml_response_fuzz/
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload crash corpus (only on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: saml-fuzz-crashes
+          path: |
+            crates/sx-iam/fuzz/artifacts/saml_response_fuzz/
+          if-no-files-found: ignore
+          retention-days: 90
+
+  # Seed-corpus sanity job — fast, runs on every PR regardless of the
+  # 6h fuzz job. Confirms the seed XML files in
+  # `fuzz/corpus/saml_response_fuzz/` are well-formed enough to compile
+  # into the harness's `include_str!` slots and that the 8 named XSW
+  # unit tests still reject every corpus example.
+  corpus-sanity:
+    name: corpus sanity (compile + XSW tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: fuzz-saml-sanity
+      - name: Compile-check sx-iam (corpus include_str! slots)
+        run: cargo check -p sx-iam --tests
+      - name: Run XSW + gate tests
+        run: cargo test -p sx-iam --lib saml::fuzz_entry --no-fail-fast

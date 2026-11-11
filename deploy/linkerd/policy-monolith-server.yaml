@@ -1,0 +1,37 @@
+# Server CR: declares the inbound port of sx-monolith as HTTP/2.
+#
+# Mapped controls:
+#   NIST SP 800-53 SC-7 (Boundary protection)
+#   ISO/IEC 27001 A.8.20 (Network security)
+apiVersion: policy.linkerd.io/v1beta1
+kind: Server
+metadata:
+  name: sx-monolith-http
+  namespace: sentinelx
+  labels:
+    app.kubernetes.io/name: sx-monolith
+    app.kubernetes.io/part-of: sentinelx
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: sx-monolith
+  port: http
+  proxyProtocol: HTTP/2
+  accessPolicy: deny
+---
+# Probes server — kubelet hits these without a sidecar. Open access policy.
+apiVersion: policy.linkerd.io/v1beta1
+kind: Server
+metadata:
+  name: sx-monolith-probes
+  namespace: sentinelx
+  labels:
+    app.kubernetes.io/name: sx-monolith
+    app.kubernetes.io/part-of: sentinelx
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: sx-monolith
+  port: http
+  proxyProtocol: HTTP/1
+  accessPolicy: all-unauthenticated

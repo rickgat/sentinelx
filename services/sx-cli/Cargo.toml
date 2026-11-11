@@ -1,0 +1,46 @@
+[package]
+name = "sx-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "SentinelX operator CLI: audit log verifier, compliance evidence dump, key rotation helpers."
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "sx"
+path = "src/main.rs"
+
+[dependencies]
+sx-audit = { workspace = true }
+sx-compliance = { workspace = true }
+sx-core = { workspace = true }
+sx-intel-feeds = { workspace = true }
+sx-secrets = { workspace = true }
+# CRIT-002 drill simulator wires the in-memory IR service into the
+# CLI so `sx audit simulate-break` can drive the auto-fire path
+# without crossing the HTTP layer.
+sx-ir-playbooks = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+secrecy = { workspace = true }
+time = { workspace = true }
+uuid = { workspace = true }
+rand = { workspace = true }
+base64 = { workspace = true }
+argon2 = { workspace = true }
+regex = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,0 +1,53 @@
+# Child Application: OpenTelemetry Collector.
+# Deployed as a DaemonSet (agent) + Deployment (gateway) per the upstream
+# helm chart's defaults, overridden in values to enable the Prometheus
+# remote_write and Jaeger OTLP exporters used by the monolith.
+# Sync wave 5 — runs alongside jaeger; both must be Ready before the
+# monolith is scheduled.
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sentinelx-otel-collector
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/name: sentinelx-otel-collector
+    app.kubernetes.io/part-of: sentinelx
+    app.kubernetes.io/component: telemetry
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  project: sentinelx
+  sources:
+    - repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts
+      chart: opentelemetry-collector
+      targetRevision: 0.108.0
+      helm:
+        releaseName: otel-collector
+        valueFiles:
+          - $values/deploy/argocd/apps/values/otel-collector-values.yaml
+    - repoURL: https://github.com/sentinelx/security-check
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: sentinelx-observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - Replace=false
+      - PruneLast=true
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 10m
+  revisionHistoryLimit: 10

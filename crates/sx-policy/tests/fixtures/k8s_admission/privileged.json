@@ -1,0 +1,27 @@
+{
+  "apiVersion": "admission.k8s.io/v1",
+  "kind": "AdmissionReview",
+  "request": {
+    "uid": "fixture-privileged",
+    "kind": { "group": "", "version": "v1", "kind": "Pod" },
+    "resource": { "group": "", "version": "v1", "resource": "pods" },
+    "operation": "CREATE",
+    "namespace": "default",
+    "name": "bad-priv",
+    "userInfo": { "username": "system:serviceaccount:kube-system:default", "uid": "abc", "groups": [] },
+    "object": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": { "name": "bad-priv", "namespace": "default" },
+      "spec": {
+        "containers": [
+          {
+            "name": "rooted",
+            "image": "gcr.io/foo/app:1.2.3",
+            "securityContext": { "privileged": true }
+          }
+        ]
+      }
+    }
+  }
+}

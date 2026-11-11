@@ -1,0 +1,53 @@
+[package]
+name = "sx-cloud"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "SentinelX cloud connectors: AWS / GCP / Azure inventory + IAM read-only."
+
+[lints]
+workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }
+reqwest = { workspace = true }
+secrecy = { workspace = true }
+url = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+
+# AWS SDK (real, smithy-generated). Pinned to a single coherent release so
+# transitive `aws-smithy-*` versions resolve to one set. The companion
+# `aws-types` / `aws-smithy-runtime-api` deps are named explicitly because
+# the SDK-backed connector references their types directly (SdkConfig,
+# SdkError, HttpResponse) rather than only through the service crates.
+# LOW-001-FU2 (2026-06-23): bumped to the 1.8.x line; feature `rustls`
+# (legacy hyper/rustls 0.21 stack) replaced with `default-https-client`
+# (modern rustls 0.23 / webpki 0.103). See sibling sx-secrets /
+# sx-audit / sx-compliance Cargo.toml for the full cascade rationale.
+aws-config = { version = "=1.8.18", default-features = false, features = ["behavior-version-latest", "rt-tokio", "default-https-client"] }
+aws-sdk-s3 = { version = "=1.136.0", default-features = false, features = ["behavior-version-latest", "rt-tokio", "default-https-client"] }
+aws-sdk-ec2 = { version = "=1.232.0", default-features = false, features = ["behavior-version-latest", "rt-tokio", "default-https-client"] }
+aws-sdk-iam = { version = "=1.113.0", default-features = false, features = ["behavior-version-latest", "rt-tokio", "default-https-client"] }
+aws-types = { version = "=1.3.16", default-features = false }
+aws-smithy-runtime-api = { version = "=1.12.3", default-features = false }
+
+[dev-dependencies]
+wiremock = { workspace = true }
+# Used by the SDK connector tests to build a synthetic `SdkConfig`
+# (with throw-away access keys) so the connector can be constructed
+# offline without touching the real AWS credential chain.
+aws-credential-types = { version = "=1.2.14", default-features = false }
+aws-smithy-types = { version = "=1.5.0", default-features = false }

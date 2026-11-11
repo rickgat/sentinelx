@@ -1,0 +1,19 @@
+{
+  "rule": "Read sensitive file untrusted (k8s service account token)",
+  "priority": "Critical",
+  "output": "Sensitive file opened for reading by non-trusted program (file=/run/secrets/kubernetes.io/serviceaccount/token user=root container_id=feedface container_image=ubuntu k8s.ns=kube-system k8s.pod=intruder-1)",
+  "time": "2026-06-12T10:32:03.000000Z",
+  "source": "k8s_audit",
+  "output_fields": {
+    "container.id": "feedface",
+    "container.image.repository": "ubuntu",
+    "fd.name": "/run/secrets/kubernetes.io/serviceaccount/token",
+    "k8s.ns.name": "kube-system",
+    "k8s.pod.name": "intruder-1",
+    "proc.name": "cat",
+    "proc.cmdline": "cat /run/secrets/kubernetes.io/serviceaccount/token",
+    "user.name": "root"
+  },
+  "hostname": "node-03",
+  "tags": ["k8s", "secrets", "mitre_credential_access", "T1552.005"]
+}

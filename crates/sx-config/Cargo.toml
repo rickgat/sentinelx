@@ -1,0 +1,30 @@
+[package]
+name = "sx-config"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "SentinelX configuration loader and schema (no hardcoded defaults)."
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_with = { workspace = true }
+figment = { workspace = true }
+thiserror = { workspace = true }
+secrecy = { workspace = true }
+validator = { workspace = true }
+url = { workspace = true }
+ipnet = { workspace = true }
+tracing = { workspace = true }
+regex = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+# Enable figment's test-only `Jail` helper without adding a new workspace dep.
+figment = { workspace = true, features = ["test"] }

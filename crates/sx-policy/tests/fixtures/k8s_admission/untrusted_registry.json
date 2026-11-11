@@ -1,0 +1,20 @@
+{
+  "apiVersion": "admission.k8s.io/v1",
+  "kind": "AdmissionReview",
+  "request": {
+    "uid": "fixture-untrusted-registry",
+    "kind": { "group": "", "version": "v1", "kind": "Pod" },
+    "resource": { "group": "", "version": "v1", "resource": "pods" },
+    "operation": "CREATE",
+    "namespace": "default",
+    "name": "untrusted",
+    "userInfo": {},
+    "object": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "spec": {
+        "containers": [{ "name": "x", "image": "evil.example.com/payload:1.0" }]
+      }
+    }
+  }
+}

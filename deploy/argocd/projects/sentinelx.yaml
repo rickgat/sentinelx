@@ -1,0 +1,116 @@
+# SentinelX AppProject — scopes which repos may serve as sources and which
+# clusters/namespaces may receive workloads. Every child Application below
+# the app-of-apps MUST reference `project: sentinelx`.
+#
+# Control mappings:
+#   NIST SP 800-53 AC-3   (Access Enforcement)
+#   NIST SP 800-53 CM-5   (Access Restrictions for Change)
+#   ISO/IEC 27001 A.5.15  (Access Control)
+#   ISO/IEC 27001 A.8.32  (Change Management)
+#   SOC2 CC6.1            (Logical access)
+#   SOC2 CC8.1            (Change management)
+#
+# This file lives at deploy/argocd/projects/sentinelx.yaml and is referenced
+# from the app-of-apps root Application as a separately-tracked source.
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: sentinelx
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/part-of: sentinelx
+    app.kubernetes.io/managed-by: argocd
+spec:
+  description: SentinelX platform GitOps project (app-of-apps scoped)
+  # ---------------------------------------------------------------------
+  # Source repositories — ONLY these git URLs may be referenced by any
+  # Application in this project. Adding a new repo requires a PR here.
+  # ---------------------------------------------------------------------
+  sourceRepos:
+    - https://github.com/sentinelx/security-check
+    - https://github.com/sentinelx/sentinelx-infra
+    - https://charts.bitnami.com/bitnami
+    - https://jaegertracing.github.io/helm-charts
+    - https://open-telemetry.github.io/opentelemetry-helm-charts
+  # ---------------------------------------------------------------------
+  # Destinations — every Application destination MUST match one entry.
+  # We allow the in-cluster ApiServer plus the sentinelx + data plane
+  # namespaces. Cross-cluster sync is disabled until ADR-007 lands.
+  # ---------------------------------------------------------------------
+  destinations:
+    - name: in-cluster
+      server: https://kubernetes.default.svc
+      namespace: sentinelx
+    - name: in-cluster
+      server: https://kubernetes.default.svc
+      namespace: sentinelx-data
+    - name: in-cluster
+      server: https://kubernetes.default.svc
+      namespace: sentinelx-observability
+    - name: in-cluster
+      server: https://kubernetes.default.svc
+      namespace: argo-rollouts
+  # ---------------------------------------------------------------------
+  # Cluster-scoped resource policy.
+  # Whitelist: small set of cluster-scoped kinds required by the charts.
+  # Blacklist: explicit deny on kinds that could escalate or break the
+  # cluster (Node mutations, raw PVs, admission webhooks).
+  # ---------------------------------------------------------------------
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+  clusterResourceBlacklist:
+    - group: ""
+      kind: Node
+    - group: ""
+      kind: PersistentVolume
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+  # ---------------------------------------------------------------------
+  # Namespace-scoped resource policy.
+  # Allow everything except ResourceQuota (managed centrally by platform).
+  # ---------------------------------------------------------------------
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  namespaceResourceBlacklist:
+    - group: ""
+      kind: ResourceQuota
+  # ---------------------------------------------------------------------
+  # RBAC roles inside the project. Mapped to OIDC groups asserted by the
+  # IdP (see docs/operations/gitops.md "OIDC bindings" section).
+  # ---------------------------------------------------------------------
+  roles:
+    - name: read-only
+      description: Read application + log state, no sync
+      policies:
+        - p, proj:sentinelx:read-only, applications, get, sentinelx/*, allow
+        - p, proj:sentinelx:read-only, logs, get, sentinelx/*, allow
+      groups:
+        - sentinelx:ops-readonly
+    - name: release-manager
+      description: Trigger sync, rollback, and action endpoints
+      policies:
+        - p, proj:sentinelx:release-manager, applications, sync, sentinelx/*, allow
+        - p, proj:sentinelx:release-manager, applications, action/*, sentinelx/*, allow
+        - p, proj:sentinelx:release-manager, applications, override, sentinelx/*, allow
+      groups:
+        - sentinelx:release-managers
+  # Warn (don't auto-prune) on resources whose owner Application went away.
+  orphanedResources:
+    warn: true
+  # Require signed commits on protected refs (Sigstore / GPG verification
+  # is configured at the Argo CD controller level; see gitops.md).
+  signatureKeys:
+    - keyID: 4AEE18F83AFDEB23

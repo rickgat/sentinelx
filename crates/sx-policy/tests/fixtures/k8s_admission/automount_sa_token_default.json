@@ -1,0 +1,24 @@
+{
+  "apiVersion": "admission.k8s.io/v1",
+  "kind": "AdmissionReview",
+  "request": {
+    "uid": "fixture-automount-sa-token-default",
+    "kind": { "group": "", "version": "v1", "kind": "Pod" },
+    "resource": { "group": "", "version": "v1", "resource": "pods" },
+    "operation": "CREATE",
+    "namespace": "default",
+    "name": "auto-token",
+    "userInfo": {},
+    "object": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": { "name": "auto-token" },
+      "spec": {
+        "containers": [{
+          "name": "app",
+          "image": "gcr.io/foo/app:1.0.0"
+        }]
+      }
+    }
+  }
+}

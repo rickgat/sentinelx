@@ -1,0 +1,19 @@
+[package]
+name = "sx-log-ingest"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "SentinelX log ingestion: OCSF 1.x canonical schema, parser SDK, and in-memory ring-buffer store."
+
+[lints]
+workspace = true
+
+[dependencies]
+metrics = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }

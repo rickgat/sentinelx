@@ -1,0 +1,24 @@
+---
+# Project-level yamllint config.
+#
+# Bumps `line-length` to 160 so long URLs / PHC strings / GitHub Actions
+# expressions in `.github/workflows/*.yml` don't force awkward wrapping,
+# but otherwise inherits the strict `default` profile.
+#
+# Verify locally with:  yamllint -c .yamllint.yml .
+
+extends: default
+
+rules:
+  line-length:
+    max: 160
+    level: warning
+  # Allow `truthy` keywords like `on:` in GH Actions when quoted; reject
+  # bare `on:` / `yes:` / `no:` elsewhere as defaults do.
+  truthy:
+    allowed-values: ["true", "false"]
+    check-keys: true
+  # Many GitHub Actions files use 2-space indent inside `steps:` blocks
+  # without quoting the dash list; default `indentation` is fine.
+  comments:
+    min-spaces-from-content: 1

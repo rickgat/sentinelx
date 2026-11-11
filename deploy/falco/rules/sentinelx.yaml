@@ -1,0 +1,245 @@
+# SentinelX — Falco runtime detection rules for the sx-monolith pod.
+#
+# Single source of truth for "what does a monolith pod look like" is the
+# `sentinelx_monolith_pod` MACRO defined below. Every rule references it,
+# so if the labelling convention changes (e.g. new chart, repo move) we
+# only edit one place.
+#
+# Rule catalog (matches docs/operations/runtime-security.md):
+#   1. SentinelX Sensitive Path Write             CRITICAL
+#   2. SentinelX Unexpected Chmod Exec In Pod     WARNING
+#   3. SentinelX Egress To Non-Allowlisted Dest   WARNING
+#   4. SentinelX Unexpected Shell In Monolith     CRITICAL
+#   5. SentinelX Secret Env Read From Foreign     CRITICAL
+#
+# Mapped controls:
+#   NIST SP 800-53 SI-4   (System monitoring)
+#   NIST SP 800-53 SI-7   (Software, firmware, information integrity)
+#   ISO/IEC 27001 A.8.16  (Monitoring activities)
+#   ISO/IEC 27001 A.8.7   (Protection against malware)
+#   SOC2 CC7.2            (System monitoring)
+
+# ---------------------------------------------------------------------------
+# Lists
+# ---------------------------------------------------------------------------
+
+- list: sentinelx_monolith_images
+  items:
+    - "sentinelx/sx-monolith"
+    - "ghcr.io/sentinelx/sx-monolith"
+
+- list: sentinelx_monolith_binary
+  items:
+    - "/usr/local/bin/sx-monolith"
+    - "sx-monolith"
+
+- list: sentinelx_shells
+  items:
+    - bash
+    - sh
+    - zsh
+    - ash
+    - dash
+    - ksh
+    - busybox
+
+- list: sentinelx_sensitive_dirs
+  items:
+    - "/opt/sentinelx/audit"
+    - "/opt/sentinelx/secrets"
+
+- list: sentinelx_secret_env_vars
+  items:
+    - "SENTINELX__JWT__SIGNING_KEY"
+    - "SENTINELX__BOOTSTRAP__ADMIN_PASSWORD_PHC"
+
+- list: sentinelx_egress_allowlist_cidrs
+  # Replace with real CIDRs before promoting to prod. Documented in
+  # deploy/falco/README.md.
+  items:
+    - "10.40.0.0/24"     # postgres (RDS subnet)
+    - "10.40.1.0/24"     # redis    (ElastiCache subnet)
+    - "10.40.2.0/24"     # otel-collector (in-cluster)
+    - "10.96.0.0/12"     # kube-services CIDR (in-cluster)
+    - "23.185.0.0/21"    # NVD       (services.nvd.nist.gov)
+    - "185.85.16.0/22"   # FIRST.org EPSS
+    - "13.32.0.0/15"     # CISA KEV / CDN
+
+# ---------------------------------------------------------------------------
+# Macros — single source of truth for "is this the monolith pod?"
+# ---------------------------------------------------------------------------
+
+- macro: sentinelx_monolith_pod
+  condition: >
+    container.image.repository in (sentinelx_monolith_images) or
+    k8s.pod.label.app_kubernetes_io_name = "sx-monolith"
+
+- macro: sentinelx_monolith_proc
+  condition: >
+    proc.exepath in (sentinelx_monolith_binary) or
+    proc.name = "sx-monolith"
+
+- macro: sentinelx_outbound
+  condition: >
+    (evt.type in (connect) and evt.dir = "<" and
+     fd.l4proto in (tcp, udp) and
+     fd.sip != "0.0.0.0" and
+     not fd.sip startswith "127.")
+
+# ---------------------------------------------------------------------------
+# Rule 1: Writes under /opt/sentinelx/{audit,secrets} from a non-monolith pid
+# Priority: CRITICAL
+# ---------------------------------------------------------------------------
+
+- rule: SentinelX Sensitive Path Write Outside Monolith
+  desc: >
+    A file under /opt/sentinelx/audit or /opt/sentinelx/secrets was written
+    by a process that is NOT the sx-monolith binary. Only the monolith
+    should ever append to those paths (audit log writer + secret cache).
+    Any other writer means either a sidecar misconfiguration or a
+    post-exploit foothold tampering with audit/secret state.
+  condition: >
+    open_write and
+    sentinelx_monolith_pod and
+    not sentinelx_monolith_proc and
+    (fd.name startswith "/opt/sentinelx/audit" or
+     fd.name startswith "/opt/sentinelx/secrets")
+  output: >
+    Sentinelx audit/secret path written by foreign process
+    (path=%fd.name proc=%proc.name pid=%proc.pid ppid=%proc.ppid
+     cmdline=%proc.cmdline user=%user.name user_loginuid=%user.loginuid
+     container=%container.name image=%container.image.repository:%container.image.tag
+     k8s_ns=%k8s.ns.name k8s_pod=%k8s.pod.name)
+  priority: CRITICAL
+  tags:
+    - sentinelx
+    - filesystem
+    - integrity
+    - audit
+    - mitre_persistence
+    - mitre_t1565
+
+# ---------------------------------------------------------------------------
+# Rule 2: chmod +x inside the monolith pod
+# Priority: WARNING
+# ---------------------------------------------------------------------------
+
+- rule: SentinelX Unexpected Chmod Exec In Monolith
+  desc: >
+    A process inside an sx-monolith pod called chmod with executable bits
+    (+x). The container image is a distroless binary; nothing in steady
+    state should be making files executable. This catches dropped tooling
+    (in-memory droppers writing /tmp/x then chmod +x) before they run.
+  condition: >
+    spawned_process and
+    sentinelx_monolith_pod and
+    proc.name = "chmod" and
+    (proc.cmdline contains "+x" or
+     proc.cmdline contains "0755" or
+     proc.cmdline contains "0777" or
+     proc.cmdline contains "755"  or
+     proc.cmdline contains "777")
+  output: >
+    chmod +x invoked inside sentinelx monolith pod
+    (cmdline=%proc.cmdline parent=%proc.pname user=%user.name
+     container=%container.name image=%container.image.repository:%container.image.tag
+     k8s_ns=%k8s.ns.name k8s_pod=%k8s.pod.name)
+  priority: WARNING
+  tags:
+    - sentinelx
+    - process
+    - crypto
+    - mitre_defense_evasion
+    - mitre_t1222
+
+# ---------------------------------------------------------------------------
+# Rule 3: Outbound connection to non-allowlisted destination
+# Priority: WARNING
+# ---------------------------------------------------------------------------
+
+- rule: SentinelX Egress To Non-Allowlisted Destination
+  desc: >
+    The monolith dialled an external IP that is not on the allowlist
+    (postgres, redis, otel-collector, in-cluster services, NVD, FIRST.org,
+    CISA). Primary detection for command-and-control / data exfiltration.
+  condition: >
+    sentinelx_outbound and
+    sentinelx_monolith_pod and
+    not fd.sip in (sentinelx_egress_allowlist_cidrs)
+  output: >
+    Sentinelx monolith egressed to non-allowlisted destination
+    (dest_ip=%fd.sip dest_port=%fd.sport proto=%fd.l4proto
+     proc=%proc.name cmdline=%proc.cmdline
+     container=%container.name image=%container.image.repository
+     k8s_ns=%k8s.ns.name k8s_pod=%k8s.pod.name)
+  priority: WARNING
+  tags:
+    - sentinelx
+    - network
+    - egress
+    - mitre_command_and_control
+    - mitre_t1071
+
+# ---------------------------------------------------------------------------
+# Rule 4: Shell spawned inside monolith pod
+# Priority: CRITICAL
+# ---------------------------------------------------------------------------
+
+- rule: SentinelX Unexpected Shell In Monolith
+  desc: >
+    A shell (bash/sh/zsh/...) was spawned inside an sx-monolith container.
+    Prod images are distroless; the absence of a shell binary means firing
+    this rule indicates either an attacker with code-exec who shipped their
+    own shell, or somebody promoted a debug image to prod by mistake.
+  condition: >
+    spawned_process and
+    sentinelx_monolith_pod and
+    proc.name in (sentinelx_shells)
+  output: >
+    Unexpected shell spawned inside sentinelx monolith pod
+    (shell=%proc.name cmdline=%proc.cmdline parent=%proc.pname
+     user=%user.name user_loginuid=%user.loginuid
+     container=%container.name image=%container.image.repository:%container.image.tag
+     k8s_ns=%k8s.ns.name k8s_pod=%k8s.pod.name)
+  priority: CRITICAL
+  tags:
+    - sentinelx
+    - container
+    - process
+    - mitre_execution
+    - mitre_t1059
+
+# ---------------------------------------------------------------------------
+# Rule 5: Suspicious env reads — SENTINELX__JWT__SIGNING_KEY etc.
+# Priority: CRITICAL
+# ---------------------------------------------------------------------------
+
+- rule: SentinelX Secret Env Read From Foreign Process
+  desc: >
+    A process other than the sx-monolith binary called process.env_extract
+    (read /proc/<pid>/environ) targeting SENTINELX__JWT__SIGNING_KEY or
+    SENTINELX__BOOTSTRAP__ADMIN_PASSWORD_PHC. Only the monolith itself
+    loads those values; anyone else reading them is staging credential
+    theft.
+  condition: >
+    sentinelx_monolith_pod and
+    not sentinelx_monolith_proc and
+    evt.type in (open, openat, openat2) and
+    fd.name endswith "/environ" and
+    (proc.cmdline contains "SENTINELX__JWT__SIGNING_KEY" or
+     proc.cmdline contains "SENTINELX__BOOTSTRAP__ADMIN_PASSWORD_PHC" or
+     proc.args contains "SENTINELX__JWT__SIGNING_KEY" or
+     proc.args contains "SENTINELX__BOOTSTRAP__ADMIN_PASSWORD_PHC")
+  output: >
+    Foreign process attempted to read SentinelX secret env
+    (target_env=%proc.cmdline proc=%proc.name pid=%proc.pid ppid=%proc.ppid
+     exe=%proc.exepath user=%user.name user_loginuid=%user.loginuid
+     container=%container.name image=%container.image.repository
+     k8s_ns=%k8s.ns.name k8s_pod=%k8s.pod.name)
+  priority: CRITICAL
+  tags:
+    - sentinelx
+    - secrets
+    - credential_access
+    - mitre_credential_access
+    - mitre_t1552

@@ -1,0 +1,60 @@
+[package]
+name = "sx-secrets"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "SentinelX HashiCorp Vault KV v2 client with TTL-cached reads. Trait-based `SecretsProvider` abstraction with an in-memory test fixture, a Vault HTTP implementation, and a moka-backed caching decorator."
+
+[lints]
+workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+base64 = { workspace = true }
+chrono = { workspace = true }
+rand = { workspace = true }
+reqwest = { workspace = true }
+secrecy = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+zeroize = { workspace = true }
+moka = { version = "0.12", features = ["future"] }
+
+# AWS SDK adapter for the KMS-backed `KekProvider` implementation.
+#
+# LOW-001-FU2 (2026-06-23): bumped from the =1.5.5/=1.51.0 release line
+# to the latest 1.8.x line as part of the rustc 1.88 -> 1.92 MSRV
+# cascade. Versions pinned to the same release across `sx-secrets`,
+# `sx-audit`, `sx-cloud`, `sx-compliance` for lockfile consistency.
+#
+# Feature selection changed in the same cascade: the legacy `rustls`
+# feature on `aws-sdk-*` + `aws-config` selects `aws-smithy-runtime`'s
+# `tls-rustls` which in turn pulls `hyper-rustls 0.24` + `rustls 0.21`
+# (the path that carries the unpatched `rustls-webpki 0.101.7`
+# advisories RUSTSEC-2026-0098/-0099/-0104). We instead opt into
+# `default-https-client` which selects `rustls-aws-lc` →
+# `hyper-rustls 0.27` + `rustls 0.23.40` + `rustls-webpki 0.103.13`,
+# closing all three rustls-webpki advisories. lru >= 0.16 also comes
+# along (closing RUSTSEC-2026-0002). System OpenSSL is still never
+# linked.
+#
+# `behavior-version-latest` silences the SDK's deprecation warning at
+# compile time while still letting us pass
+# `BehaviorVersion::latest()` explicitly at runtime.
+aws-config = { version = "=1.8.18", default-features = false, features = ["behavior-version-latest", "default-https-client", "rt-tokio"] }
+aws-sdk-kms = { version = "=1.111.0", default-features = false, features = ["behavior-version-latest", "default-https-client", "rt-tokio"] }
+aws-smithy-runtime-api = { version = "=1.12.3", default-features = false, features = ["client"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros"] }
+wiremock = { workspace = true }
+serde_json = { workspace = true }

@@ -1,0 +1,30 @@
+[package]
+name = "sx-mtls"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "SentinelX mTLS: rustls ServerConfig builder + hot-reloading certificate watcher."
+
+[lints]
+workspace = true
+
+[dependencies]
+sx-config = { workspace = true }
+rustls = { version = "0.23", default-features = false, features = ["std", "ring", "logging", "tls12"] }
+rustls-pemfile = { version = "2" }
+x509-parser = { version = "0.17", default-features = false }
+notify = { version = "6", default-features = false, features = ["macos_kqueue"] }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+time = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+parking_lot = "0.12"
+
+[dev-dependencies]
+rcgen = { version = "0.13", default-features = false, features = ["crypto", "ring", "pem"] }
+tempfile = "3"
+time = { workspace = true }

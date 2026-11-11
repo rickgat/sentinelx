@@ -1,0 +1,33 @@
+[package]
+name = "sx-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "SentinelX domain layer: entities, value objects, ports. No I/O."
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }
+ipnet = { workspace = true }
+url = { workspace = true }
+regex = { workspace = true }
+# Used by `reference::url_guard` for async DNS resolution. The "zero I/O"
+# rule on this crate is relaxed for that single module by design — see
+# the module docstring. The workspace `tokio` already enables `net`.
+tokio = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+proptest = { workspace = true }
+tokio = { workspace = true }
+mockall = { workspace = true }

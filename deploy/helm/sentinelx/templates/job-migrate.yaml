@@ -1,0 +1,72 @@
+{{- if .Values.migrationJob.enabled -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "sentinelx.fullname" . }}-migrate
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sentinelx.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.migrationJob.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.migrationJob.activeDeadlineSeconds }}
+  ttlSecondsAfterFinished: {{ .Values.migrationJob.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        {{- include "sentinelx.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "sentinelx.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: migrate
+          image: "{{ .Values.migrationJob.image.repository }}:{{ .Values.migrationJob.image.tag }}"
+          imagePullPolicy: {{ .Values.migrationJob.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          command:
+            {{- toYaml .Values.migrationJob.command | nindent 12 }}
+          env:
+            - name: SENTINELX_CONFIG
+              value: /etc/sentinelx/config.yaml
+            - name: SENTINELX__DATABASE__URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "sentinelx.secretName" . }}
+                  key: database-url
+          volumeMounts:
+            - name: config
+              mountPath: /etc/sentinelx
+              readOnly: true
+            {{- if .Values.scratchTmpfs.enabled }}
+            - name: scratch
+              mountPath: /tmp
+            {{- end }}
+          resources:
+            {{- toYaml .Values.migrationJob.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "sentinelx.configMapName" . }}
+            items:
+              - key: config.yaml
+                path: config.yaml
+        {{- if .Values.scratchTmpfs.enabled }}
+        - name: scratch
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.scratchTmpfs.sizeLimit }}
+        {{- end }}
+{{- end }}

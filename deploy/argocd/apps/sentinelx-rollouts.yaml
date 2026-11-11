@@ -1,0 +1,49 @@
+# Installs the argo-rollouts controller + CRDs cluster-wide.
+# Runs in its own namespace; Rollout CRs in `sentinelx` will be reconciled by it.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sentinelx-rollouts
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: sentinelx
+  source:
+    repoURL: https://argoproj.github.io/argo-helm
+    chart: argo-rollouts
+    targetRevision: 2.37.7
+    helm:
+      releaseName: argo-rollouts
+      values: |
+        installCRDs: true
+        controller:
+          replicas: 2
+          metrics:
+            enabled: true
+            serviceMonitor:
+              enabled: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+        dashboard:
+          enabled: true
+          replicas: 1
+          readonly: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argo-rollouts
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

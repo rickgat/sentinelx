@@ -1,0 +1,180 @@
+# SentinelX — Linkerd ServiceProfile for sx-monolith.
+#
+# Declares the expected HTTP routes for the monolith and gives the proxy:
+#   * Per-route response classification (5xx = failure -> retried/quarantined)
+#   * Per-route timeouts (matches the application-side handler budget)
+#   * A retry policy that EXCLUDES mutating verbs to avoid duplicate side
+#     effects (engagement creation, audit log writes, account mutations).
+#
+# Route patterns are EXACT regex (anchored, no greedy wildcards) so we
+# do not silently sweep in undeclared admin endpoints.
+#
+# Mapped controls:
+#   NIST SP 800-53 SC-5  (Denial-of-service protection)
+#   NIST SP 800-53 SC-7  (Boundary protection)
+#   ISO/IEC 27001 A.8.21 (Security of network services)
+#   SOC2 A1.2            (System availability)
+---
+apiVersion: linkerd.io/v1alpha2
+kind: ServiceProfile
+metadata:
+  name: sx-monolith.sentinelx.svc.cluster.local
+  namespace: sentinelx
+  labels:
+    app.kubernetes.io/name: sx-monolith
+    app.kubernetes.io/part-of: sentinelx
+spec:
+  routes:
+    # --- /v1/auth ----------------------------------------------------------
+    - name: auth-login
+      condition:
+        method: POST
+        pathRegex: '^/v1/auth/login$'
+      timeout: 10s
+      isRetryable: false
+      responseClasses:
+        - condition:
+            status:
+              min: 500
+              max: 599
+          isFailure: true
+
+    - name: auth-refresh
+      condition:
+        method: POST
+        pathRegex: '^/v1/auth/refresh$'
+      timeout: 5s
+      isRetryable: false
+      responseClasses:
+        - condition:
+            status:
+              min: 500
+              max: 599
+          isFailure: true
+
+    - name: auth-logout
+      condition:
+        method: POST
+        pathRegex: '^/v1/auth/logout$'
+      timeout: 5s
+      isRetryable: false
+      responseClasses:
+        - condition:
+            status:
+              min: 500
+              max: 599
+          isFailure: true
+
+    # --- /v1/admin ---------------------------------------------------------
+    # Read-side admin (list users/roles/audit) — retryable with budget.
+    - name: admin-list
+      condition:
+        method: GET
+        pathRegex: '^/v1/admin/(users|roles|audit|policies)(/[a-zA-Z0-9_-]+)?$'
+      timeout: 15s
+      isRetryable: true
+      responseClasses:
+        - condition:
+            status:
+              min: 500
+              max: 599
+          isFailure: true
+
+    # Write-side admin (create/update/delete) — NOT retryable. Duplicates
+    # would create duplicate audit log entries / orphan ACL grants.
+    - name: admin-mutate-create
+      condition:
+        method: POST
+        pathRegex: '^/v1/admin/(users|roles|policies)$'
+      timeout: 15s
+      isRetryable: false
+      responseClasses:
+        - condition:
+            status:
+              min: 500
+              max: 599
+          isFailure: true
+
+    - name: admin-mutate-update
+      condition:
+        method: PUT
+        pathRegex: '^/v1/admin/(users|roles|policies)/[a-zA-Z0-9_-]+$'
+      timeout: 15s
+      isRetryable: false
+      responseClasses:
+        - condition:
+            status:
+              min: 500
+              max: 599
+          isFailure: true
+
+    - name: admin-mutate-delete
+      condition:
+        method: DELETE
+        pathRegex: '^/v1/admin/(users|roles|policies)/[a-zA-Z0-9_-]+$'
+      timeout: 15s
+      isRetryable: false
+      responseClasses:
+        - condition:
+            status:
+              min: 500
+              max: 599
+          isFailure: true
+
+    # --- /v1/safety --------------------------------------------------------
+    # Kill-switch is the global "stop all engagements" lever. It is
+    # idempotent on the server side, but we still do NOT retry to avoid
+    # accidentally re-triggering operator pages.
+    - name: safety-kill-switch
+      condition:
+        method: POST
+        pathRegex: '^/v1/safety/kill-switch$'
+      timeout: 5s
+      isRetryable: false
+      responseClasses:
+        - condition:
+            status:
+              min: 500
+              max: 599
+          isFailure: true
+
+    - name: safety-status
+      condition:
+        method: GET
+        pathRegex: '^/v1/safety/status$'
+      timeout: 5s
+      isRetryable: true
+      responseClasses:
+        - condition:
+            status:
+              min: 500
+              max: 599
+          isFailure: true
+
+    - name: safety-abort-engagement
+      condition:
+        method: POST
+        pathRegex: '^/v1/safety/abort-engagement/[a-fA-F0-9-]{36}$'
+      timeout: 10s
+      isRetryable: false
+      responseClasses:
+        - condition:
+            status:
+              min: 500
+              max: 599
+          isFailure: true
+
+    # --- Probes (kubelet) --------------------------------------------------
+    - name: probes
+      condition:
+        pathRegex: '^/(healthz|readyz|livez)$'
+      timeout: 2s
+      isRetryable: false
+
+  # Read-only routes (marked isRetryable: true) share a single budget:
+  # up to 20% of base requests can be retries, with a floor of 10/sec so
+  # low-traffic services still recover from transient blips.
+  retryBudget:
+    retryRatio: 0.2
+    minRetriesPerSecond: 10
+    ttl: 10s

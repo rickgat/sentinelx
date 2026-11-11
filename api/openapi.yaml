@@ -1,0 +1,1458 @@
+openapi: 3.1.0
+info:
+  title: SentinelX HTTP API
+  version: 1.0.0
+  summary: SentinelX continuous security validation platform.
+  description: |
+    Public HTTP surface served by `sx-api` and mounted by the
+    `services/sx-monolith` binary.
+
+    Every successful response is wrapped in the envelope
+    `{ "data": ..., "meta": { "request_id": str, "ts": rfc3339 } }`.
+    Every error response uses the envelope
+    `{ "error": { "code": str, "message": str, "request_id": str, "details"?: object } }`.
+
+    All `/v1/*` routes require a bearer access token issued by
+    `POST /v1/auth/login` **except** for `/v1/auth/login` and
+    `/v1/auth/refresh`. `/healthz` and `/readyz` are also public.
+
+    Pagination — every list endpoint accepts `offset` (>= 0, default 0)
+    and `limit` (1..=200, default 50) query parameters and returns a
+    `PageView` envelope inside `data`.
+  contact:
+    name: SentinelX Platform Team
+    url: https://github.com/sentinelx/sentinelx
+  license:
+    name: PolyForm Noncommercial 1.0.0
+    url: https://polyformproject.org/licenses/noncommercial/1.0.0
+servers:
+  - url: http://localhost:8080
+    description: Local development monolith.
+  - url: https://api.sentinelx.example.com
+    description: Production gateway.
+tags:
+  - name: auth
+    description: Authentication and session management.
+  - name: tenants
+    description: Tenant lookups for the calling principal.
+  - name: engagements
+    description: Engagement (scope) lifecycle.
+  - name: assets
+    description: Asset inventory.
+  - name: findings
+    description: Finding inventory and triage state.
+  - name: risk
+    description: Composite risk scoring (CVSS + EPSS + exposure + criticality).
+  - name: discovery
+    description: Asset discovery runs.
+  - name: safety
+    description: Engagement safety controls (kill switch, scope guard).
+  - name: bas
+    description: Breach-and-attack-simulation orchestration.
+  - name: graph
+    description: Attack-graph traversal and shortest-path search.
+  - name: reports
+    description: Report rendering (PDF, SARIF, STIX, CSV).
+  - name: remediation
+    description: Vendor advisory lookups for remediation guidance.
+  - name: compliance
+    description: Framework catalogues and finding-to-control mapping.
+  - name: ml
+    description: ML inference (triage classifier).
+  - name: collab
+    description: Reserved — collaboration features (not exposed in v1).
+  - name: autonomy
+    description: Reserved — autonomy/playbooks (not exposed in v1).
+  - name: cloud
+    description: Reserved — cloud connector administration (not exposed in v1).
+security:
+  - bearerAuth: []
+paths:
+  /healthz:
+    get:
+      tags: [autonomy]
+      summary: Liveness probe.
+      description: 'Returns `{ "status": "ok" }` if the process is alive.'
+      operationId: healthz
+      security: []
+      responses:
+        "200":
+          description: Liveness OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope_HealthStatus"
+  /readyz:
+    get:
+      tags: [autonomy]
+      summary: Readiness probe.
+      description: 'Returns `{ "status": "ok" }` once downstream dependencies are reachable.'
+      operationId: readyz
+      security: []
+      responses:
+        "200":
+          description: Readiness OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope_HealthStatus"
+        "503":
+          description: A dependency is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v1/auth/login:
+    post:
+      tags: [auth]
+      summary: Exchange tenant + email + password for a token pair.
+      operationId: authLogin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginView"
+      responses:
+        "200":
+          description: Token pair issued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope_TokenView"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+  /v1/auth/refresh:
+    post:
+      tags: [auth]
+      summary: Rotate an expired access token using a refresh token.
+      operationId: authRefresh
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshView"
+      responses:
+        "200":
+          description: Fresh token pair.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope_TokenView"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/auth/logout:
+    post:
+      tags: [auth]
+      summary: Revoke the caller's refresh token.
+      operationId: authLogout
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LogoutView"
+      responses:
+        "204":
+          description: Token revoked.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/tenants/me:
+    get:
+      tags: [tenants]
+      summary: Return the calling principal's tenant.
+      operationId: tenantMe
+      responses:
+        "200":
+          description: Tenant summary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope_TenantSummaryView"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/engagements:
+    get:
+      tags: [engagements]
+      summary: List engagements visible to the caller.
+      operationId: engagementsList
+      parameters:
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Engagement page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope_PageEngagement"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [engagements]
+      summary: Create a new engagement.
+      operationId: engagementsCreate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEngagementView"
+      responses:
+        "201":
+          description: Engagement created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope_EngagementView"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+  /v1/engagements/{id}:
+    get:
+      tags: [engagements]
+      summary: Fetch a single engagement by id.
+      operationId: engagementsGetOne
+      parameters:
+        - $ref: "#/components/parameters/EngagementId"
+      responses:
+        "200":
+          description: Engagement.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope_EngagementView"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [engagements]
+      summary: Partially update an engagement.
+      operationId: engagementsUpdate
+      parameters:
+        - $ref: "#/components/parameters/EngagementId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateEngagementView"
+      responses:
+        "200":
+          description: Updated engagement.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope_EngagementView"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+  /v1/assets:
+    get:
+      tags: [assets]
+      summary: List assets visible to the caller.
+      operationId: assetsList
+      parameters:
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Asset page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope_PageAsset"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/assets/{id}:
+    get:
+      tags: [assets]
+      summary: Fetch a single asset by id.
+      operationId: assetsGetOne
+      parameters:
+        - $ref: "#/components/parameters/AssetId"
+      responses:
+        "200":
+          description: Asset.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope_AssetView"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/findings:
+    get:
+      tags: [findings]
+      summary: List findings visible to the caller.
+      operationId: findingsList
+      parameters:
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Finding page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope_PageFinding"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/findings/{id}:
+    get:
+      tags: [findings]
+      summary: Fetch a single finding by id.
+      operationId: findingsGetOne
+      parameters:
+        - $ref: "#/components/parameters/FindingId"
+      responses:
+        "200":
+          description: Finding.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope_FindingView"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/findings/{id}/status:
+    patch:
+      tags: [findings]
+      summary: Update the workflow state of a finding.
+      operationId: findingsUpdateStatus
+      parameters:
+        - $ref: "#/components/parameters/FindingId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateFindingStatusView"
+      responses:
+        "200":
+          description: Updated finding.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope_FindingView"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+  /v1/risk/calculate:
+    post:
+      tags: [risk]
+      summary: Compute the composite risk score for a single finding/CVE.
+      operationId: riskCalculate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CalculateRiskRequest"
+      responses:
+        "200":
+          description: Risk score.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope_CalculateRiskView"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+  /v1/risk/engagement/{engagement_id}:
+    post:
+      tags: [risk]
+      summary: Aggregate engagement-level risk breakdown.
+      operationId: riskCalculateForEngagement
+      parameters:
+        - $ref: "#/components/parameters/EngagementIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CalculateEngagementRiskRequest"
+      responses:
+        "200":
+          description: Engagement risk breakdown.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope_EngagementRiskBreakdownView"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+  /v1/discovery/runs:
+    post:
+      tags: [discovery]
+      summary: Kick off a discovery run for an engagement.
+      operationId: discoveryRun
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DiscoveryRunRequest"
+      responses:
+        "202":
+          description: Run accepted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope_DiscoveryRunResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+  /v1/safety/kill-switch:
+    post:
+      tags: [safety]
+      summary: Trip the engagement-wide kill switch.
+      operationId: safetyKillSwitch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KillSwitchRequest"
+      responses:
+        "204":
+          description: Kill switch tripped.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+  /v1/bas/run:
+    post:
+      tags: [bas]
+      summary: Run a BAS simulation.
+      operationId: basRun
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BasRunRequestView"
+      responses:
+        "200":
+          description: Simulation outcome.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope_BasRunResponseView"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+  /v1/graph/attack-paths:
+    post:
+      tags: [graph]
+      summary: Search the attack graph for top-k attack paths.
+      operationId: graphAttackPaths
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GraphAttackPathsRequestView"
+      responses:
+        "200":
+          description: Attack paths.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope_GraphAttackPathsResponseView"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+  /v1/reports/render:
+    post:
+      tags: [reports]
+      summary: Render an engagement report in the chosen format.
+      operationId: reportsRender
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportRenderRequestView"
+      responses:
+        "200":
+          description: Rendered report metadata (and inline payload for text formats).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope_ReportRenderResponseView"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+  /v1/remediation/advisories:
+    post:
+      tags: [remediation]
+      summary: Look up vendor advisories for a CVE.
+      operationId: remediationAdvisories
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RemediationAdvisoriesRequestView"
+      responses:
+        "200":
+          description: Matched advisories.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope_RemediationAdvisoriesResponseView"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+  /v1/compliance/frameworks/{framework}:
+    get:
+      tags: [compliance]
+      summary: List controls in a compliance framework.
+      operationId: complianceListFramework
+      parameters:
+        - $ref: "#/components/parameters/FrameworkPath"
+      responses:
+        "200":
+          description: Framework catalogue.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope_ComplianceFrameworkResponseView"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/compliance/map:
+    post:
+      tags: [compliance]
+      summary: Map a finding's category to implicated controls.
+      operationId: complianceMapFinding
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ComplianceMapRequestView"
+      responses:
+        "200":
+          description: Mapped controls.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope_ComplianceMapResponseView"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+  /v1/ml/predict/triage:
+    post:
+      tags: [ml]
+      summary: Predict triage label (true/false positive) for a finding row.
+      operationId: mlPredictTriage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MlTriagePredictRequestView"
+      responses:
+        "200":
+          description: Triage prediction.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope_MlTriagePredictResponseView"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    Offset:
+      name: offset
+      in: query
+      required: false
+      schema:
+        type: integer
+        format: int64
+        minimum: 0
+        default: 0
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 200
+        default: 50
+    EngagementId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    EngagementIdPath:
+      name: engagement_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    AssetId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    FindingId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    FrameworkPath:
+      name: framework
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [nist_800_53, iso_27001, pci_dss, soc2, hipaa, cis]
+  responses:
+    Unauthorized:
+      description: Missing or invalid bearer token.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Unprocessable:
+      description: Request body failed validation.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+  schemas:
+    Severity:
+      type: string
+      enum: [info, low, medium, high, critical]
+    FindingStatus:
+      type: string
+      enum: [open, triaged, accepted, closed]
+    BasMode:
+      type: string
+      enum:
+        - theoretical
+        - passive_validation
+        - safe_interactive
+        - active_exploit
+        - red_team
+    ReportFormat:
+      type: string
+      enum: [executive_pdf, technical_pdf, sarif, stix, csv]
+    FindingCategory:
+      type: string
+      enum:
+        - authentication
+        - authorization
+        - encryption_at_rest
+        - encryption_in_transit
+        - logging
+        - vulnerability_management
+        - network_segmentation
+        - backup_recovery
+        - secrets_management
+        - configuration_drift
+        - incident_response
+    ResponseMeta:
+      type: object
+      required: [request_id, ts]
+      properties:
+        request_id:
+          type: string
+          description: Hex request id propagated via `x-request-id`.
+        ts:
+          type: string
+          format: date-time
+    ErrorBody:
+      type: object
+      required: [code, message, request_id]
+      properties:
+        code:
+          type: string
+          description: Stable, machine-readable error code.
+        message:
+          type: string
+        request_id:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+          nullable: true
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/ErrorBody"
+    HealthStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+    LoginView:
+      type: object
+      required: [tenant_id, email, password]
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+          writeOnly: true
+    RefreshView:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token:
+          type: string
+    LogoutView:
+      type: object
+      properties:
+        refresh_token:
+          type: string
+          nullable: true
+    TokenView:
+      type: object
+      required: [access_token, refresh_token, expires_in, token_type]
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        expires_in:
+          type: integer
+          format: int64
+          description: Seconds until `access_token` expires.
+        token_type:
+          type: string
+          enum: [Bearer]
+    TenantSummaryView:
+      type: object
+      required: [id, name, slug, is_active]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        is_active:
+          type: boolean
+    CreateEngagementView:
+      type: object
+      required: [name, scopes]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 4000
+          nullable: true
+        scopes:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items:
+            type: string
+    UpdateEngagementView:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          nullable: true
+        description:
+          type: string
+          maxLength: 4000
+          nullable: true
+        status:
+          type: string
+          nullable: true
+    EngagementView:
+      type: object
+      required: [id, tenant_id, name, scopes, status, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        scopes:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AssetView:
+      type: object
+      required: [id, tenant_id, engagement_id, kind, identifier, source, first_seen, last_seen]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        engagement_id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [host, domain, url, ip, container, repo]
+        identifier:
+          type: string
+        source:
+          type: string
+          enum: [scan, manual, import]
+        first_seen:
+          type: string
+          format: date-time
+        last_seen:
+          type: string
+          format: date-time
+    FindingView:
+      type: object
+      required: [id, tenant_id, asset_id, severity, status, title, description, first_seen, last_seen]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        asset_id:
+          type: string
+          format: uuid
+        severity:
+          $ref: "#/components/schemas/Severity"
+        status:
+          $ref: "#/components/schemas/FindingStatus"
+        title:
+          type: string
+        description:
+          type: string
+        cvss:
+          type: number
+          format: double
+          minimum: 0.0
+          maximum: 10.0
+          nullable: true
+        cve_id:
+          type: string
+          pattern: "^CVE-\\d{4}-\\d{4,}$"
+          nullable: true
+        first_seen:
+          type: string
+          format: date-time
+        last_seen:
+          type: string
+          format: date-time
+    UpdateFindingStatusView:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: "#/components/schemas/FindingStatus"
+        comment:
+          type: string
+          maxLength: 2000
+          nullable: true
+    CalculateRiskRequest:
+      type: object
+      required: [engagement_id]
+      properties:
+        engagement_id:
+          type: string
+          format: uuid
+        asset_id:
+          type: string
+          format: uuid
+          nullable: true
+        cve_id:
+          type: string
+          pattern: "^CVE-\\d{4}-\\d{4,}$"
+          nullable: true
+    RiskBreakdownView:
+      type: object
+      required: [cvss, epss, exposure, criticality]
+      properties:
+        cvss:
+          type: number
+          format: double
+        epss:
+          type: number
+          format: double
+        exposure:
+          type: number
+          format: double
+        criticality:
+          type: number
+          format: double
+    CalculateRiskView:
+      type: object
+      required: [engagement_id, composite_score, components]
+      properties:
+        engagement_id:
+          type: string
+          format: uuid
+        composite_score:
+          type: number
+          format: double
+          minimum: 0.0
+          maximum: 100.0
+        components:
+          $ref: "#/components/schemas/RiskBreakdownView"
+    CalculateEngagementRiskRequest:
+      type: object
+      required: [include_unscored, top_n]
+      properties:
+        include_unscored:
+          type: boolean
+        top_n:
+          type: integer
+          minimum: 1
+          maximum: 200
+    SeverityCounts:
+      type: object
+      required: [critical, high, medium, low, info]
+      properties:
+        critical:
+          type: integer
+          minimum: 0
+        high:
+          type: integer
+          minimum: 0
+        medium:
+          type: integer
+          minimum: 0
+        low:
+          type: integer
+          minimum: 0
+        info:
+          type: integer
+          minimum: 0
+    FindingRisk:
+      type: object
+      required: [finding_id, score, severity]
+      properties:
+        finding_id:
+          type: string
+          format: uuid
+        cve_id:
+          type: string
+          nullable: true
+        score:
+          type: number
+          format: double
+        severity:
+          $ref: "#/components/schemas/Severity"
+    EngagementRiskBreakdownView:
+      type: object
+      required: [engagement_id, total_findings, scored, max_score, average_score, severity_counts, top]
+      properties:
+        engagement_id:
+          type: string
+          format: uuid
+        total_findings:
+          type: integer
+        scored:
+          type: integer
+        max_score:
+          type: number
+          format: double
+        average_score:
+          type: number
+          format: double
+        severity_counts:
+          $ref: "#/components/schemas/SeverityCounts"
+        top:
+          type: array
+          items:
+            $ref: "#/components/schemas/FindingRisk"
+    DiscoveryRunRequest:
+      type: object
+      required: [engagement_id]
+      properties:
+        engagement_id:
+          type: string
+          format: uuid
+    DiscoveryRunResponse:
+      type: object
+      required: [run_id]
+      properties:
+        run_id:
+          type: string
+    KillSwitchRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+        scope:
+          type: string
+          enum: [tenant, engagement]
+          nullable: true
+        engagement_id:
+          type: string
+          format: uuid
+          nullable: true
+    BasRunRequestView:
+      type: object
+      required: [technique_id, target, mode]
+      properties:
+        technique_id:
+          type: string
+          example: "T1003"
+        target:
+          type: string
+        mode:
+          $ref: "#/components/schemas/BasMode"
+        dry_run:
+          type: boolean
+          nullable: true
+    BasRunResponseView:
+      type: object
+      required: [simulation_id, outcome, evidence_count]
+      properties:
+        simulation_id:
+          type: string
+        outcome:
+          type: string
+          enum: [simulated, blocked, killed]
+        evidence_count:
+          type: integer
+          minimum: 0
+    GraphAttackPathsRequestView:
+      type: object
+      required: [tenant_id, max_depth, max_paths]
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        max_depth:
+          type: integer
+          minimum: 1
+          maximum: 10
+        max_paths:
+          type: integer
+          minimum: 1
+          maximum: 200
+    AttackPathView:
+      type: object
+      required: [id, score, length]
+      properties:
+        id:
+          type: string
+        score:
+          type: number
+          format: double
+        length:
+          type: integer
+    GraphAttackPathsResponseView:
+      type: object
+      required: [paths]
+      properties:
+        paths:
+          type: array
+          items:
+            $ref: "#/components/schemas/AttackPathView"
+    ReportRenderRequestView:
+      type: object
+      required: [tenant_id, engagement_id, format]
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        engagement_id:
+          type: string
+          format: uuid
+        format:
+          $ref: "#/components/schemas/ReportFormat"
+    ReportRenderResponseView:
+      type: object
+      required: [filename, mime_type, byte_count]
+      properties:
+        filename:
+          type: string
+        mime_type:
+          type: string
+        byte_count:
+          type: integer
+          minimum: 0
+        inline_payload:
+          type: string
+          format: byte
+          nullable: true
+    RemediationAdvisoriesRequestView:
+      type: object
+      required: [cve_id]
+      properties:
+        cve_id:
+          type: string
+          pattern: "^CVE-\\d{4}-\\d{4,}$"
+    AdvisoryView:
+      type: object
+      required: [vendor, advisory_id, references]
+      properties:
+        vendor:
+          type: string
+        advisory_id:
+          type: string
+        references:
+          type: array
+          items:
+            type: string
+            format: uri
+    RemediationAdvisoriesResponseView:
+      type: object
+      required: [advisories]
+      properties:
+        advisories:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdvisoryView"
+    ControlView:
+      type: object
+      required: [id, framework, title, family]
+      properties:
+        id:
+          type: string
+        framework:
+          type: string
+        title:
+          type: string
+        family:
+          type: string
+    ComplianceFrameworkResponseView:
+      type: object
+      required: [framework, controls]
+      properties:
+        framework:
+          type: string
+        controls:
+          type: array
+          items:
+            $ref: "#/components/schemas/ControlView"
+    ComplianceMapRequestView:
+      type: object
+      required: [finding_id, category, severity]
+      properties:
+        finding_id:
+          type: string
+          format: uuid
+        category:
+          $ref: "#/components/schemas/FindingCategory"
+        severity:
+          $ref: "#/components/schemas/Severity"
+    ComplianceMapResponseView:
+      type: object
+      required: [finding_id, controls]
+      properties:
+        finding_id:
+          type: string
+          format: uuid
+        controls:
+          type: array
+          items:
+            $ref: "#/components/schemas/ControlView"
+    MlTriagePredictRequestView:
+      type: object
+      required: [model_id, row]
+      properties:
+        model_id:
+          type: string
+        row:
+          type: object
+          additionalProperties: true
+    MlTriagePredictResponseView:
+      type: object
+      required: [label, probability]
+      properties:
+        label:
+          type: string
+          enum: [true_positive, false_positive, unknown]
+        probability:
+          type: number
+          format: double
+          minimum: 0.0
+          maximum: 1.0
+    PageView_Engagement:
+      type: object
+      required: [items, offset, limit]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/EngagementView"
+        offset:
+          type: integer
+          format: int64
+        limit:
+          type: integer
+          format: int32
+        total:
+          type: integer
+          format: int64
+          nullable: true
+    PageView_Asset:
+      type: object
+      required: [items, offset, limit]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssetView"
+        offset:
+          type: integer
+          format: int64
+        limit:
+          type: integer
+          format: int32
+        total:
+          type: integer
+          format: int64
+          nullable: true
+    PageView_Finding:
+      type: object
+      required: [items, offset, limit]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/FindingView"
+        offset:
+          type: integer
+          format: int64
+        limit:
+          type: integer
+          format: int32
+        total:
+          type: integer
+          format: int64
+          nullable: true
+    Envelope_HealthStatus:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/HealthStatus"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    Envelope_TokenView:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/TokenView"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    Envelope_TenantSummaryView:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/TenantSummaryView"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    Envelope_EngagementView:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/EngagementView"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    Envelope_PageEngagement:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/PageView_Engagement"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    Envelope_AssetView:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/AssetView"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    Envelope_PageAsset:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/PageView_Asset"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    Envelope_FindingView:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/FindingView"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    Envelope_PageFinding:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/PageView_Finding"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    Envelope_CalculateRiskView:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/CalculateRiskView"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    Envelope_EngagementRiskBreakdownView:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/EngagementRiskBreakdownView"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    Envelope_DiscoveryRunResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/DiscoveryRunResponse"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    Envelope_BasRunResponseView:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/BasRunResponseView"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    Envelope_GraphAttackPathsResponseView:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/GraphAttackPathsResponseView"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    Envelope_ReportRenderResponseView:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/ReportRenderResponseView"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    Envelope_RemediationAdvisoriesResponseView:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/RemediationAdvisoriesResponseView"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    Envelope_ComplianceFrameworkResponseView:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/ComplianceFrameworkResponseView"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    Envelope_ComplianceMapResponseView:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/ComplianceMapResponseView"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    Envelope_MlTriagePredictResponseView:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/MlTriagePredictResponseView"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"

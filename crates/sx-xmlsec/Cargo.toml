@@ -1,0 +1,108 @@
+[package]
+name = "sx-xmlsec"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "SentinelX libxmlsec1 FFI bindings + XmlDsigVerifier trait scaffold (TOP5-#1 staged replacement of hand-rolled XMLDSig)."
+build = "build.rs"
+
+# NOTE: We deliberately do NOT inherit `[workspace.lints]` because the
+# workspace pins `unsafe_code = "forbid"`. This crate is the FFI surface for
+# `libxmlsec1` and MUST contain `extern "C"` blocks + raw-pointer handling.
+# We restate the rest of the workspace's lint policy here so we keep parity
+# with the rest of the repo (deny clippy::all + pedantic + nursery, deny
+# unwrap/expect/panic, deny dbg/print). The only difference is that
+# `unsafe_code` is silenced for this crate — every `unsafe { ... }` block in
+# `src/ffi.rs` and `src/init.rs` carries a SAFETY comment explaining the
+# preconditions, per the workspace's expectation that unsafe is only used at
+# documented FFI boundaries.
+[lints.rust]
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "warn"
+unimplemented = "warn"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+integer_division = "warn"
+indexing_slicing = "warn"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+multiple_crate_versions = "allow"
+cargo_common_metadata = "allow"
+
+[features]
+# DEFAULT IS EMPTY ON PURPOSE.
+#
+# Workspace-wide `cargo check --workspace` and CI clippy runs must keep
+# working on developer machines that have NOT installed `libxmlsec1-dev` /
+# `libxml2-dev` / `libxmlsec1-openssl`. The downstream consumer crate
+# (eventually `sx-iam`) will opt into actual linkage via its own feature
+# gate, which will transitively enable `xmlsec1` here.
+#
+# `xmlsec1` — when on, `build.rs` requires `pkg-config` to find xmlsec1,
+# xmlsec1-openssl, and libxml-2.0 (or it loudly fails the build). FFI
+# symbols become callable.
+#
+# `vendored-libxmlsec1` — fallback used by release-image builds where the
+# system-package version of libxmlsec1 has a known CVE or is too old.
+# `build.rs` would compile from a vendored tarball. PHASE-1A: stubbed +
+# TODO; PHASE-2B will harden it (see `docs/plans/top5-1-xmldsig-replacement.md`
+# §3 R1 mitigation).
+default = []
+xmlsec1 = []
+vendored-libxmlsec1 = ["xmlsec1"]
+
+[dependencies]
+# FFI primitive types (`c_int`, `c_char`, etc.).
+libc = "0.2"
+# Error enum — same crate the rest of the workspace uses.
+thiserror = { workspace = true }
+# PHASE-2A: shadow-mode `DualVerifier` emits structured `tracing` events
+# and a `metrics::counter!("xmldsig_shadow_mismatch_total")` whenever the
+# primary and secondary verifiers disagree. Both deps are the same
+# workspace pins the rest of `sx-*` uses; the default-feature build does
+# not require libxmlsec1 linkage to compile or test the shadow-mode path.
+tracing = { workspace = true }
+metrics = { workspace = true }
+
+[dev-dependencies]
+# PHASE-1B integration tests generate self-signed certs + signed XML
+# in a per-test tmpdir via the system `openssl` / `xmlsec1` CLIs. The
+# tests are gated on `target_os = "linux"` AND `feature = "xmlsec1"`,
+# so this dependency only affects the `--all-features --tests` build
+# path that already requires libxmlsec1 + libxml2 system packages.
+tempfile = "3"
+# TOP5-#1-PHASE-2B: the corpus parity test replays the HIGH-003 fuzz
+# corpus through both the hand-rolled verifier (via
+# `sx_iam::service::saml::verify_assertion`) and
+# `LayeredVerifier(XmlSec1Verifier)` with the `pre_parse_gates`-derived
+# closure from `sx_iam::service::saml::make_preparse_gates_closure`.
+# Dev-dep ONLY (no production cycle) — the test is also gated on
+# `cfg(all(feature = "xmlsec1", target_os = "linux"))` so it never
+# runs against macOS dev workstations or the default-feature CI lane.
+sx-iam = { workspace = true }
+
+[build-dependencies]
+# Restored after cargo-machete false-positive removal — used by build.rs
+# to compile the C FFI wrapper against libxmlsec.
+cc = "1"
+pkg-config = "0.3"
+
+[package.metadata.cargo-machete]
+ignored = ["cc", "pkg-config"]

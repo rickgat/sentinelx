@@ -1,0 +1,175 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:best-practices"
+  ],
+  "timezone": "UTC",
+  "schedule": [
+    "before 6am on Monday"
+  ],
+  "prHourlyLimit": 5,
+  "prConcurrentLimit": 5,
+  "branchConcurrentLimit": 10,
+  "labels": [
+    "dependencies"
+  ],
+  "assignees": [
+    "@sentinelx/security-engineering"
+  ],
+  "reviewers": [
+    "@sentinelx/security-engineering"
+  ],
+  "rangeStrategy": "bump",
+  "rebaseWhen": "behind-base-branch",
+  "semanticCommits": "enabled",
+  "semanticCommitType": "chore",
+  "semanticCommitScope": "deps",
+  "minimumReleaseAge": "3 days",
+  "internalChecksFilter": "strict",
+  "configMigration": true,
+  "dependencyDashboard": true,
+  "dependencyDashboardTitle": "Renovate Dependency Dashboard",
+  "dependencyDashboardOSVVulnerabilitySummary": "all",
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "schedule": [
+      "at any time"
+    ],
+    "labels": [
+      "security",
+      "vulnerability"
+    ],
+    "minimumReleaseAge": null,
+    "prCreation": "immediate",
+    "prPriority": 10,
+    "automerge": false,
+    "assignees": [
+      "@sentinelx/security-engineering"
+    ]
+  },
+  "packageRules": [
+    {
+      "description": "Group all Rust workspace dependencies into a single PR",
+      "matchManagers": [
+        "cargo"
+      ],
+      "groupName": "rust workspace dependencies",
+      "groupSlug": "rust-workspace",
+      "schedule": [
+        "before 6am on Monday"
+      ],
+      "labels": [
+        "dependencies",
+        "rust"
+      ],
+      "commitMessageTopic": "rust workspace dependencies"
+    },
+    {
+      "description": "Group all frontend (npm/pnpm/yarn) dependencies into a single PR",
+      "matchManagers": [
+        "npm",
+        "pnpm",
+        "yarn"
+      ],
+      "matchFileNames": [
+        "web/**",
+        "api/**"
+      ],
+      "groupName": "frontend dependencies",
+      "groupSlug": "frontend",
+      "schedule": [
+        "before 6am on Monday"
+      ],
+      "labels": [
+        "dependencies",
+        "frontend"
+      ],
+      "commitMessageTopic": "frontend dependencies"
+    },
+    {
+      "description": "Group all Docker base image bumps into a single PR",
+      "matchManagers": [
+        "dockerfile",
+        "docker-compose",
+        "kubernetes"
+      ],
+      "matchDatasources": [
+        "docker"
+      ],
+      "groupName": "docker base images",
+      "groupSlug": "docker-base-images",
+      "schedule": [
+        "before 6am on Monday"
+      ],
+      "labels": [
+        "dependencies",
+        "docker"
+      ],
+      "commitMessageTopic": "docker base images"
+    },
+    {
+      "description": "Auto-merge patch-level bumps of dev-dependencies only",
+      "matchDepTypes": [
+        "devDependencies",
+        "dev-dependencies",
+        "build-dependencies"
+      ],
+      "matchUpdateTypes": [
+        "patch"
+      ],
+      "automerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "squash",
+      "platformAutomerge": true,
+      "minimumReleaseAge": "3 days",
+      "labels": [
+        "dependencies",
+        "automerge"
+      ]
+    },
+    {
+      "description": "Never auto-merge runtime dependencies",
+      "matchDepTypes": [
+        "dependencies",
+        "required",
+        "peerDependencies"
+      ],
+      "automerge": false
+    },
+    {
+      "description": "Pin GitHub Actions to immutable SHA",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "pinDigests": true,
+      "labels": [
+        "dependencies",
+        "ci"
+      ]
+    }
+  ],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": [
+      "before 6am on Monday"
+    ],
+    "commitMessageAction": "Refresh",
+    "labels": [
+      "dependencies",
+      "lockfile"
+    ]
+  },
+  "prBodyTemplate": "{{{header}}}\n\n{{{table}}}\n\n{{{warnings}}}\n\n## Security context\n\n{{#if hasReleaseNotes}}{{{notes}}}{{/if}}\n\n**GHSA / CVE annotations**\n\n- GHSA IDs detected for this update will be listed below. If empty, no advisory matched the bumped versions at PR creation time.\n- {{#if vulnerabilityAlert}}Advisory: {{vulnerabilityAlert.advisory.id}} ({{vulnerabilityAlert.advisory.severity}}) — {{vulnerabilityAlert.advisory.title}}{{else}}No GHSA advisory matched.{{/if}}\n- Researchers and triage analysts: cross-reference with `docs/security/bug-bounty.md` if this update closes a previously reported issue.\n\n{{{controls}}}\n\n{{{footer}}}",
+  "prBodyNotes": [
+    ":warning: Vulnerability fixes ship as soon as the upstream patch is published, bypassing the standard `minimumReleaseAge`.",
+    "GHSA / CVE identifiers (if any) are inserted automatically by Renovate's `vulnerabilityAlerts` integration."
+  ],
+  "customManagers": [],
+  "ignorePaths": [
+    "**/node_modules/**",
+    "**/vendor/**",
+    "**/target/**",
+    "**/dist/**"
+  ]
+}

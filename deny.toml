@@ -1,0 +1,82 @@
+[graph]
+# Analyse the full feature graph (matches the CI deny job's --all-features),
+# so feature-gated dependencies are covered by the advisory/license/ban
+# policy too.
+all-features = true
+no-default-features = false
+
+[advisories]
+version = 2
+# Reviewed accepted-risk list (CI-FF-01). Every vulnerability with a safe,
+# in-range fix has already been applied via `cargo update` / the wasmtime
+# =36.0.20 bump; the entries below are the residue that cannot be resolved
+# without a risky transitive major-version cascade, or for which no fix
+# exists. Each is tracked for a future dependency-upgrade wave.
+ignore = [
+    # --- No fix exists / unmaintained transitive crates (universally
+    #     unavoidable in the current ecosystem) --------------------------
+    "RUSTSEC-2023-0071", # rsa — Marvin timing attack; no patched release exists (patched = [] upstream)
+    "RUSTSEC-2025-0012", # backoff — unmaintained (transitive)
+    "RUSTSEC-2024-0384", # instant — unmaintained (transitive)
+    "RUSTSEC-2024-0436", # paste — unmaintained (transitive, proc-macro)
+    "RUSTSEC-2026-0441", # pin-utils — unmaintained (transitive)
+    "RUSTSEC-2026-0173", # proc-macro-error2 — unmaintained (build-time only)
+    "RUSTSEC-2025-0134", # rustls-pemfile — unmaintained (superseded by rustls-pki-types)
+    "RUSTSEC-2026-0192", # ttf-parser — unmaintained (transitive via PDF/font path)
+    "RUSTSEC-2024-0449", # unsafe-libyaml — unmaintained (transitive YAML parser)
+    # --- Fix requires a transitive MAJOR bump + parent-crate cascade;
+    #     deferred to a dedicated dependency-upgrade wave --------------
+    "RUSTSEC-2026-0387", # crypto-bigint 0.5.x — fix is 0.7.6 (major); parent pins 0.5
+    "RUSTSEC-2026-0187", # lopdf 0.31.x — fix is 0.42 (major); PDF-parsing transitive
+    "RUSTSEC-2026-0381", # webpki-roots 0.26.x — fix is 1.0 (major); cert-store transitive
+]
+
+[licenses]
+version = 2
+# The workspace's own crates are `publish = false` and carry
+# `PolyForm-Noncommercial-1.0.0` (source-available, deliberately not in
+# the third-party allow-list). Skip license evaluation for first-party,
+# unpublished crates; third-party dependencies are still fully checked.
+private = { ignore = true }
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "0BSD",
+    "BSL-1.0",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "Zlib",
+    "OpenSSL",
+    "MPL-2.0",
+]
+confidence-threshold = 0.93
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# First-party workspace crates depend on each other by path with a `*`
+# version requirement; that is the idiomatic intra-workspace form and is
+# not a supply-chain wildcard. Third-party `*` requirements still fail.
+allow-wildcard-paths = true
+highlight = "all"
+deny = [
+    # Keep OpenSSL out of our own code (we standardise on rustls), but allow
+    # the one unavoidable transitive path: webauthn-rs's attestation-CA
+    # support pulls the `openssl` crate, which is the only thing that
+    # depends on `openssl-sys`. `wrappers` permits that path and nothing
+    # else — a direct first-party dependency on openssl-sys still fails.
+    { name = "openssl-sys", reason = "prefer rustls; only allowed transitively via the webauthn-rs attestation stack", wrappers = ["openssl", "webauthn-attestation-ca", "webauthn-rs-core"] },
+    { name = "native-tls", reason = "prefer rustls" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

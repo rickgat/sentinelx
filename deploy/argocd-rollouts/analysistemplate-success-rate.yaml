@@ -1,0 +1,42 @@
+# Success-rate analysis template.
+# Query against the in-cluster Prometheus, fed by the ServiceMonitor on the
+# monolith. The denominator excludes probe routes so kubelet noise doesn't
+# skew the metric.
+#
+# Pass condition: >= 0.995 (99.5%) sustained over the 2m sample window.
+#
+# Mapped controls:
+#   NIST SP 800-53 SI-4 (System monitoring)
+#   ISO/IEC 27001 A.8.16 (Monitoring activities)
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: success-rate
+  namespace: sentinelx
+spec:
+  args:
+    - name: service-name
+    - name: namespace
+      value: sentinelx
+  metrics:
+    - name: success-rate
+      interval: 30s
+      count: 4
+      successCondition: result[0] >= 0.995
+      failureLimit: 1
+      provider:
+        prometheus:
+          address: http://prometheus.monitoring.svc.cluster.local:9090
+          query: |
+            sum(rate(sx_http_requests_total{
+              namespace="{{args.namespace}}",
+              service="{{args.service-name}}",
+              status!~"5..",
+              route!~"healthz|readyz"
+            }[2m]))
+            /
+            sum(rate(sx_http_requests_total{
+              namespace="{{args.namespace}}",
+              service="{{args.service-name}}",
+              route!~"healthz|readyz"
+            }[2m]))

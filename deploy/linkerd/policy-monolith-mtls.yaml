@@ -1,0 +1,43 @@
+# MeshTLSAuthentication + per-source rate limit for the monolith.
+#
+# Pins which SPIFFE identities are allowed to dial /v1/* over mTLS.
+# Identities are derived from ServiceAccount + namespace by Linkerd identity.
+#
+# Mapped controls:
+#   NIST SP 800-53 IA-3 (Device identification + authentication)
+#   ISO/IEC 27001 A.5.16 (Identity management)
+apiVersion: policy.linkerd.io/v1alpha1
+kind: MeshTLSAuthentication
+metadata:
+  name: sx-monolith-callers
+  namespace: sentinelx
+spec:
+  identities:
+    # Same-namespace clients
+    - "*.sentinelx.serviceaccount.identity.linkerd.cluster.local"
+    # Ingress controller
+    - "default.ingress-nginx.serviceaccount.identity.linkerd.cluster.local"
+    - "ingress-nginx.ingress-nginx.serviceaccount.identity.linkerd.cluster.local"
+---
+# HTTPLocalRateLimitPolicy: 100 RPS per remote client; bursts of 200.
+# Enforced by the Linkerd proxy inbound to sx-monolith.
+apiVersion: policy.linkerd.io/v1alpha1
+kind: HTTPLocalRateLimitPolicy
+metadata:
+  name: sx-monolith-rate-limit
+  namespace: sentinelx
+spec:
+  targetRef:
+    group: policy.linkerd.io
+    kind: Server
+    name: sx-monolith-http
+  total:
+    requestsPerSecond: 1000
+  identity:
+    requestsPerSecond: 100
+  overrides:
+    - requestsPerSecond: 50
+      clientRefs:
+        - kind: ServiceAccount
+          name: external-untrusted
+          namespace: sentinelx

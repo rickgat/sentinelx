@@ -1,0 +1,45 @@
+[package]
+name = "sx-report"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "SentinelX reporting: Executive/Technical PDF, SARIF, STIX, CSV exporters."
+
+[lints]
+workspace = true
+
+[dependencies]
+sx-core = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }
+chrono = { workspace = true }
+printpdf = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+base64 = { workspace = true }
+url = { workspace = true }
+# Cron expression parser used by the report scheduler.
+cron = "0.12"
+# SMTP email dispatcher used by the report scheduler. We pin the rustls
+# variants so the binary never links OpenSSL/native-tls.
+lettre = { version = "0.11", default-features = false, features = [
+    "builder",
+    "smtp-transport",
+    "tokio1",
+    "tokio1-rustls-tls",
+    "hostname",
+    "pool",
+] }
+
+[dev-dependencies]
+rstest = { workspace = true }
+tokio = { workspace = true }

@@ -1,0 +1,244 @@
+# SentinelX local multi-region smoke harness (TOP5-#4 LOCAL-VALIDATED).
+#
+# What this stack is:
+#   A local docker-compose substitute for a true cloud staging cluster, so the
+#   TOP5-#4 validation artifacts (k6 scripts, migration parity, runbooks) can
+#   be exercised end-to-end on a laptop before paying for staging.
+#
+# What this stack ISN'T:
+#   - Not a real multi-region deployment (single host, single Docker network).
+#   - Not a cloud-LB failover validator (nginx round-robin, no anycast / GeoDNS).
+#   - Not a ClickHouse multi-shard topology — single CH node is enough for smoke.
+#   - Not a network-partition validator — see docs/runbooks/multi-region-deployment.md
+#     §12 "Local validation harness" for the gap list.
+#
+# Topology:
+#
+#   smoke_runner ──┐
+#                  │ k6 → nginx_lb:8090
+#                  ▼
+#            [ nginx_lb ]
+#               │     │   round-robin
+#               ▼     ▼
+#       monolith_primary   monolith_standby   (both → pg_primary for writes)
+#               │              │
+#               └──────┬───────┘
+#                      ▼
+#                 [ pg_primary ] ── streaming replication ──▶ [ pg_standby ]
+#                      ▲
+#                      │ (clickhouse joins only on the analytics path; not used
+#                      │  by the dev YAML's in-memory mode, kept here for future
+#                      │  smoke that flips analytics adapters on)
+#                  [ clickhouse ]
+#
+# Bring up:
+#   docker compose -f deploy/local-multiregion/docker-compose.yml up -d --build
+#
+# Smoke:
+#   docker compose -f deploy/local-multiregion/docker-compose.yml \
+#       exec smoke_runner k6 run /tests/load/k6/auth_flow.js
+#
+# Tear down:
+#   docker compose -f deploy/local-multiregion/docker-compose.yml down -v
+
+name: sentinelx-local-multiregion
+
+services:
+  pg_primary:
+    image: postgres:16-alpine
+    container_name: sx_pg_primary
+    environment:
+      POSTGRES_USER: ${PG_USER:-sentinelx}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-sentinelx-local-pw}
+      POSTGRES_DB: ${PG_DB:-sentinelx}
+      # Replication user / password — referenced by pg_standby. Pinned
+      # to the literals matched by pg_primary/init.sql and
+      # pg_standby/standby-entrypoint.sh.
+      PG_REPL_USER: replicator
+      PG_REPL_PASSWORD: sentinelx-replica-pw
+      # md5 keeps replication auth in step with the literal password in
+      # init.sql; scram-sha-256 also works but requires the hba below.
+      POSTGRES_HOST_AUTH_METHOD: md5
+      POSTGRES_INITDB_ARGS: "--auth-host=md5"
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - max_wal_senders=4
+      - -c
+      - max_replication_slots=4
+      - -c
+      - hot_standby=on
+      - -c
+      - listen_addresses=*
+    volumes:
+      - ./pg_primary/init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+      - ./pg_primary/pg_hba_extra.sh:/docker-entrypoint-initdb.d/01-hba.sh:ro
+      - pg_primary_data:/var/lib/postgresql/data
+    ports:
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-sentinelx} -d ${PG_DB:-sentinelx}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - sx_net
+
+  pg_standby:
+    image: postgres:16-alpine
+    container_name: sx_pg_standby
+    depends_on:
+      pg_primary:
+        condition: service_healthy
+    environment:
+      POSTGRES_USER: ${PG_USER:-sentinelx}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-sentinelx-local-pw}
+      PG_REPL_USER: ${PG_REPL_USER:-replicator}
+      PG_REPL_PASSWORD: ${PG_REPL_PASSWORD:-sentinelx-replica-pw}
+    entrypoint: ["/bin/sh", "/opt/sx/standby-entrypoint.sh"]
+    volumes:
+      - ./pg_standby/standby-entrypoint.sh:/opt/sx/standby-entrypoint.sh:ro
+      - pg_standby_data:/var/lib/postgresql/data
+    ports:
+      - "55433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-sentinelx} || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+    networks:
+      - sx_net
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24-alpine
+    container_name: sx_clickhouse
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    environment:
+      CLICKHOUSE_DB: ${CH_DB:-sentinelx}
+      CLICKHOUSE_USER: ${CH_USER:-sentinelx}
+      CLICKHOUSE_PASSWORD: ${CH_PASSWORD:-sentinelx-local-pw}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ports:
+      - "58123:8123"
+      - "59000:9000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8123/ping || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks:
+      - sx_net
+
+  monolith_primary:
+    build:
+      context: ../..
+      dockerfile: deploy/local-multiregion/monolith.dockerfile
+    container_name: sx_monolith_primary
+    depends_on:
+      pg_primary:
+        condition: service_healthy
+    environment:
+      SENTINELX_CONFIG: /etc/sentinelx/sentinelx.local.yaml
+      SENTINELX__SERVER__BIND_ADDR: "0.0.0.0:8080"
+      SENTINELX__TELEMETRY__ENVIRONMENT: "local-primary"
+      RUST_LOG: info
+    volumes:
+      - ./monolith_config/sentinelx.local.yaml:/etc/sentinelx/sentinelx.local.yaml:ro
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+    networks:
+      - sx_net
+
+  monolith_standby:
+    build:
+      context: ../..
+      dockerfile: deploy/local-multiregion/monolith.dockerfile
+    container_name: sx_monolith_standby
+    depends_on:
+      pg_primary:
+        condition: service_healthy
+    environment:
+      SENTINELX_CONFIG: /etc/sentinelx/sentinelx.local.yaml
+      SENTINELX__SERVER__BIND_ADDR: "0.0.0.0:8080"
+      SENTINELX__TELEMETRY__ENVIRONMENT: "local-standby"
+      RUST_LOG: info
+    volumes:
+      - ./monolith_config/sentinelx.local.yaml:/etc/sentinelx/sentinelx.local.yaml:ro
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+    networks:
+      - sx_net
+
+  nginx_lb:
+    image: nginx:1.27-alpine
+    container_name: sx_nginx_lb
+    depends_on:
+      monolith_primary:
+        condition: service_healthy
+      monolith_standby:
+        condition: service_healthy
+    volumes:
+      - ./nginx_lb/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "8090:8090"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8090/lb-health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - sx_net
+
+  smoke_runner:
+    image: grafana/k6:0.51.0
+    container_name: sx_smoke_runner
+    depends_on:
+      nginx_lb:
+        condition: service_healthy
+    # Override entrypoint so the container stays up; the operator drives
+    # k6 runs via `docker compose exec`.
+    entrypoint: ["sh", "-c", "echo 'smoke_runner up. exec k6 run <script> to drive a run.'; tail -f /dev/null"]
+    environment:
+      SX_BASE_URL: "http://nginx_lb:8090"
+      SX_ADMIN_EMAIL: "admin@sentinelx.dev"
+      SX_ADMIN_PASSWORD: "sentinelx-admin-pw"
+      SX_TENANT_ID: "01010101-0101-0101-0101-010101010101"
+      # scan_flow.js uses an external httpbin by default; point it at the
+      # local mock so the smoke runs in airgapped environments too.
+      SX_SCAN_TARGET: "http://nginx_lb:8090/healthz"
+      K6_VUS: "1"
+      K6_DURATION: "10s"
+    volumes:
+      - ../../tests/load:/tests/load:ro
+    healthcheck:
+      test: ["CMD-SHELL", "k6 --version || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - sx_net
+
+networks:
+  sx_net:
+    driver: bridge
+
+volumes:
+  pg_primary_data:
+  pg_standby_data:

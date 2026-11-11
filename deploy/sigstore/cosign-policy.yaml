@@ -1,0 +1,50 @@
+# ClusterImagePolicy: every image pulled from ghcr.io/sentinelx/* must be
+# signed keyless by the SentinelX release workflow on a vN.N.N tag.
+#
+# Mapped controls:
+#   NIST SR-4 (Provenance), SR-11 (Component authenticity)
+#   ISO/IEC 27001 A.5.23 (Information security for use of cloud services)
+#   SOC2 CC6.8, CC7.1
+apiVersion: policy.sigstore.dev/v1beta1
+kind: ClusterImagePolicy
+metadata:
+  name: sentinelx-images-must-be-signed
+spec:
+  images:
+    - glob: "ghcr.io/sentinelx/*"
+  authorities:
+    - name: sentinelx-release-workflow
+      keyless:
+        url: https://fulcio.sigstore.dev
+        identities:
+          - issuer: https://token.actions.githubusercontent.com
+            subjectRegExp: "^https://github.com/sentinelx/sentinelx/\\.github/workflows/release\\.yml@refs/tags/v.*$"
+      ctlog:
+        url: https://rekor.sigstore.dev
+  policy:
+    type: cue
+    data: |
+      // Require a CycloneDX SBOM attestation as well.
+      predicateType: "https://cyclonedx.org/bom"
+  mode: enforce
+---
+# Namespace selector: enforce on `sentinelx` and `argo-rollouts` only. Other
+# namespaces (e.g. monitoring) are allowed to pull unsigned third-party images.
+apiVersion: policy.sigstore.dev/v1beta1
+kind: ClusterImagePolicy
+metadata:
+  name: sentinelx-namespace-scope
+spec:
+  match:
+    - resource: pods
+      version: v1
+  images:
+    - glob: "ghcr.io/sentinelx/*"
+  authorities:
+    - name: scope-only
+      keyless:
+        url: https://fulcio.sigstore.dev
+        identities:
+          - issuer: https://token.actions.githubusercontent.com
+            subjectRegExp: "^https://github.com/sentinelx/sentinelx/\\.github/workflows/release\\.yml@refs/tags/v.*$"
+  mode: enforce

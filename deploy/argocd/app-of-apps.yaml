@@ -1,0 +1,59 @@
+# Root Argo CD Application — the "app-of-apps".
+# Pointing at deploy/argocd/apps/ means every YAML in that directory is
+# rendered as a child Application by Argo CD's directory generator.
+# Bootstrap order:
+#   1. Apply deploy/argocd/projects/sentinelx.yaml manually (or as a
+#      pre-sync job) so the AppProject exists before any child syncs.
+#   2. Apply THIS file. Argo CD will then own the apps/ directory and
+#      reconcile every Application in it.
+#   3. Subsequent changes flow purely through git merges to main.
+#
+# Control mappings:
+#   NIST SP 800-53 CM-3 (Change control)
+#   ISO/IEC 27001 A.8.32 (Change management)
+#   SOC2 CC8.1 (Change management)
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sentinelx-app-of-apps
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/name: sentinelx-app-of-apps
+    app.kubernetes.io/part-of: sentinelx
+    app.kubernetes.io/managed-by: argocd
+  annotations:
+    # Sync wave -1 so the root reconciles strictly before its children.
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: sentinelx
+  source:
+    repoURL: https://github.com/sentinelx/security-check
+    targetRevision: main
+    path: deploy/argocd/apps
+    directory:
+      recurse: false
+      jsonnet: {}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - Replace=false
+      - PruneLast=true
+      - CreateNamespace=false
+      - ApplyOutOfSyncOnly=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m
+  revisionHistoryLimit: 10

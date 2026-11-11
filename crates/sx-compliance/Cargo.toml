@@ -1,0 +1,43 @@
+[package]
+name = "sx-compliance"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "SentinelX compliance: ISO/SOC2/PCI/HIPAA/NIST control mapping + evidence collection."
+
+[lints]
+workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+hmac = { workspace = true }
+printpdf = { workspace = true }
+pulldown-cmark = { workspace = true }
+
+# AWS SDK for the production `SdkS3Sink` (opt-in via the CLI `--real` flag).
+#
+# LOW-001-FU2 (2026-06-23): bumped from =1.5.5/=1.51.0 to the latest
+# 1.8.x line as part of the rustc 1.88 -> 1.92 MSRV cascade. This is
+# coordinated with `sx-secrets`, `sx-audit`, `sx-cloud` so the
+# workspace lockfile resolves to one coherent smithy version set.
+# Feature `rustls` (legacy hyper/rustls 0.21) was replaced with
+# `default-https-client` (modern rustls 0.23 / webpki 0.103); see
+# sibling sx-secrets/Cargo.toml for the full rationale.
+aws-config = { version = "=1.8.18", default-features = false, features = ["behavior-version-latest", "default-https-client", "rt-tokio"] }
+aws-sdk-s3 = { version = "=1.136.0", default-features = false, features = ["behavior-version-latest", "default-https-client", "rt-tokio"] }
+
+[dev-dependencies]
+proptest = { workspace = true }
+tokio = { workspace = true }
+tempfile = "3"

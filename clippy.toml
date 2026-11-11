@@ -1,0 +1,14 @@
+avoid-breaking-exported-api = false
+msrv = "1.92"
+cognitive-complexity-threshold = 20
+too-many-arguments-threshold = 7
+type-complexity-threshold = 250
+disallowed-methods = [
+    { path = "std::env::var", reason = "use sx_config schema instead of direct env access" },
+    { path = "std::env::vars", reason = "use sx_config schema instead of direct env access" },
+]
+disallowed-macros = [
+    { path = "std::println", reason = "use tracing::info!" },
+    { path = "std::eprintln", reason = "use tracing::error!" },
+    { path = "std::dbg", reason = "leftover debug macro" },
+]

@@ -1,0 +1,27 @@
+[package]
+name = "sx-collab-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.sx-collab]
+path = ".."
+
+# Pin so the fuzz crate is not part of the workspace (cargo-fuzz convention).
+[workspace]
+
+[[bin]]
+name = "token_parse"
+path = "fuzz_targets/token_parse.rs"
+test = false
+doc = false
+bench = false
+
+[profile.release]
+debug = 1

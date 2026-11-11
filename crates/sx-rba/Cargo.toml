@@ -1,0 +1,50 @@
+[package]
+name = "sx-rba"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "SentinelX Risk-Based Authentication engine (P1-003): collects login signals (IP geo, ASN, device, time-of-day, velocity), scores 0-100, and maps to an action (allow / step-up MFA / block + alert)."
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# HIGH-001: GBDT ML scorer. Off by default. When enabled, pulls the
+# dependency-free gradient-boosted-tree inference engine from `sx-ml`
+# and expects a JSON-serialised `sx_ml::predictive::gbdt::Forest` as the
+# model artifact. With no usable artifact the scorer fails closed.
+ml-rba = ["dep:sx-ml"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+time = { workspace = true }
+uuid = { workspace = true }
+dashmap = "6"
+metrics = { workspace = true }
+sx-telemetry = { workspace = true }
+# GBDT inference engine for the `ml-rba` scorer (dependency-free, in-tree).
+sx-ml = { workspace = true, optional = true }
+# LOW-004 + LOW-005: Postgres-backed persistent signal stores
+# (DeviceFingerprintStore + TravelStore). Workspace `sqlx` already
+# carries the postgres+uuid+time feature set so adding the dep here
+# is free at the build-graph level (sx-storage / sx-monolith pin the
+# same version + features).
+sqlx = { workspace = true }
+# `block_in_place` + `Handle::block_on` bridge used by both
+# `PgDeviceFingerprintLedger` (LOW-004) and `PgTravelStore` (LOW-005)
+# to call async sqlx from the synchronous trait surface — keeps
+# `RbaService::evaluate` strictly sync (no async ripple through the
+# engine).
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
+metrics-util = "0.17"
+sqlx = { workspace = true }

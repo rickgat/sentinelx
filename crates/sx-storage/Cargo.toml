@@ -1,0 +1,50 @@
+[package]
+name = "sx-storage"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "SentinelX persistence adapters (Postgres) implementing sx-core ports."
+
+[lints]
+workspace = true
+
+[features]
+# Opt-in test-only assertions. Enabling `test-asserts` exposes
+# `PoolAssertGuard` and friends, which panic if a checked-out connection
+# is used without first setting `app.current_tenant_id` via `SET LOCAL`.
+# Production builds never enable this feature — see LOW-002.
+test-asserts = []
+
+[dependencies]
+sx-audit = { workspace = true }
+sx-core = { workspace = true }
+sx-webhooks = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+sqlx = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }
+chrono = { workspace = true }
+secrecy = { workspace = true }
+hex = { workspace = true }
+
+[dev-dependencies]
+
+# LOW-002: the integration test `rls_pool_assert.rs` imports the
+# feature-gated `pool_assert` module. `required-features` tells cargo
+# to compile + run that file only when `test-asserts` is enabled —
+# `cargo test -p sx-storage` (no features) silently skips it; CI runs
+# with `--all-features` and picks it up. The pure-Rust unit tests of
+# the assertion live in `src/pool_assert.rs` under `#[cfg(test)]` and
+# run regardless.
+[[test]]
+name = "rls_pool_assert"
+path = "tests/rls_pool_assert.rs"
+required-features = ["test-asserts"]

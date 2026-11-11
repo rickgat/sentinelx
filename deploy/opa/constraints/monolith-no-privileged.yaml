@@ -1,0 +1,20 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: SxDenyPrivileged
+metadata:
+  name: sentinelx-no-privileged
+spec:
+  enforcementAction: deny
+  match:
+    namespaces:
+      - sentinelx
+    kinds:
+      - apiGroups:
+          - apps
+        kinds:
+          - Deployment
+          - StatefulSet
+          - DaemonSet
+      - apiGroups:
+          - argoproj.io
+        kinds:
+          - Rollout

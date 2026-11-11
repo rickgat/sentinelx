@@ -1,0 +1,139 @@
+name: sentinelx
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: sx-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sentinelx}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-sentinelx}
+    ports:
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      - sx_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    security_opt:
+      - no-new-privileges:true
+    # Wave: hardened P2-1. Postgres needs CHOWN/SETUID/SETGID/FOWNER for
+    # initdb + volume-permission fixup; drop everything else.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - FOWNER
+      - DAC_READ_SEARCH
+    read_only: false
+    tmpfs:
+      - /tmp
+      - /run/postgresql
+
+  redis:
+    image: redis:7-alpine
+    container_name: sx-redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - allkeys-lru
+      - --appendonly
+      - "yes"
+    ports:
+      - "${REDIS_HOST_PORT:-6379}:6379"
+    volumes:
+      - sx_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "$${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    security_opt:
+      - no-new-privileges:true
+    # Wave: hardened P2-1. Redis needs zero caps once dropped-privileged.
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62
+    container_name: sx-jaeger
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "${JAEGER_UI_PORT:-16686}:16686"
+      - "14268:14268"
+      - "14250:14250"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.106.0
+    container_name: sx-otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./deploy/docker/otel-collector-config.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "${OTLP_GRPC_PORT:-4317}:4317"
+      - "${OTLP_HTTP_PORT:-4318}:4318"
+      - "13133:13133"
+    depends_on:
+      - jaeger
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+
+  monolith:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+    container_name: sx-monolith
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      SENTINELX_CONFIG: /etc/sentinelx/config.yaml
+      SENTINELX__TELEMETRY__OTLP_ENDPOINT: http://otel-collector:4317
+    volumes:
+      - ./config/sentinelx.yaml:/etc/sentinelx/config.yaml:ro
+    ports:
+      - "${SX_HTTP_PORT:-8080}:8080"
+      - "${SX_METRICS_PORT:-9090}:9090"
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp
+    profiles:
+      - app
+
+volumes:
+  sx_pg_data:
+  sx_redis_data:

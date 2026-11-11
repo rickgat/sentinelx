@@ -1,0 +1,45 @@
+# SentinelX — Trivy CVE allowlist
+#
+# Severity gate: CRITICAL, HIGH (enforced in
+# .github/workflows/release.yml and .github/workflows/verify-release.yml).
+#
+# Add ONE entry per line in the form:
+#
+#     CVE-YYYY-NNNNN
+#
+# Each entry MUST be preceded by a comment block documenting:
+#   1. Affected component / package + version.
+#   2. Why it does not affect SentinelX (attack surface, mitigation, etc.).
+#   3. Date added + reviewer (GitHub handle).
+#   4. Re-review date (max 90 days out — see docs/security/supply-chain.md).
+#
+# Stale entries (past re-review date) MUST be removed or re-justified.
+# Reviewed quarterly by @sentinelx/security.
+#
+# ──────────────────────────────────────────────────────────────────────────────
+# EXAMPLE (placeholder — DO NOT KEEP, replace with real triage entries):
+#
+# Component:    placeholder/example-lib 0.0.0
+# Justification: This is a sentinel entry so the file is non-empty and trivy
+#                loads the allowlist. It references a reserved CVE ID that
+#                will never match a real finding. Replace with real triage.
+# Added:         2026-05-30 by @sentinelx-bot
+# Re-review by:  2026-08-28
+CVE-0000-00000
+
+# ──────────────────────────────────────────────────────────────────────────────
+# AVD-AWS-0104 — Security group rule allows unrestricted egress.
+# ──────────────────────────────────────────────────────────────────────────────
+# Affected:      deploy/terraform/dev/eks.tf lines 43-65 (EKS cluster SG)
+# Justification: EKS control plane MUST reach public AWS APIs (IAM, KMS,
+#                CloudWatch, ECR, STS) which live on the public internet.
+#                We restrict to 443/tcp (HTTPS) and 53/udp+tcp (DNS)
+#                only — all other ports/protocols are denied. Restricting
+#                to specific AWS-owned CIDR blocks is operationally
+#                fragile (AWS publishes ip-ranges.json but rotation lag
+#                causes false negatives).
+#                RDS and Redis SGs (rds.tf, elasticache.tf) are already
+#                restricted to `aws_vpc.main.cidr_block`.
+# Added:         2026-08-04 by @security-review (via nex-erp audit)
+# Re-review by:  2026-11-04 — track VPC-endpoint expansion for IAM/STS
+AVD-AWS-0104

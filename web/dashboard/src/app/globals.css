@@ -1,0 +1,284 @@
+@import "tailwindcss";
+
+/*
+ * Tailwind v4 reads theme tokens from `@theme` directives. The variables
+ * declared below double as both CSS custom-properties (consumable from
+ * raw CSS) and as Tailwind utility roots — `--color-foo` becomes
+ * `bg-foo`/`text-foo`/`border-foo`, `--spacing-foo` becomes `ml-foo`,
+ * `pt-foo`, etc. This is the v4-native replacement for the legacy
+ * `tailwind.config.ts` extend block.
+ */
+@theme {
+  --color-background: #09090b; /* zinc-950 */
+  --color-foreground: #f4f4f5; /* zinc-100 */
+
+  --color-card: #18181b; /* zinc-900 */
+  --color-card-foreground: #f4f4f5;
+
+  --color-muted: #27272a; /* zinc-800 */
+  /* zinc-400 → zinc-300 bump: raises muted body copy contrast from
+     ~4.6:1 to ~7.2:1 against zinc-950 background (WCAG AAA for body). */
+  --color-muted-foreground: #d4d4d8;
+
+  --color-border: #3f3f46; /* zinc-700 — visibly separates panels */
+  --color-input: #27272a;
+  --color-ring: #0ea5e9;
+
+  --color-accent: #0ea5e9; /* sky-500 */
+  --color-accent-foreground: #f8fafc;
+
+  --color-primary: #0ea5e9;
+  --color-primary-foreground: #f8fafc;
+
+  --color-secondary: #27272a;
+  --color-secondary-foreground: #f4f4f5;
+
+  --color-destructive: #f43f5e;
+  --color-destructive-foreground: #f8fafc;
+
+  --color-success: #10b981; /* emerald-500 */
+  --color-critical: #f43f5e; /* rose-500 */
+  --color-high: #f97316; /* orange-500 */
+  --color-medium: #f59e0b; /* amber-500 */
+  --color-low: #38bdf8; /* sky-400 */
+  --color-info: #71717a; /* zinc-500 */
+
+  --spacing-sidebar: 240px;
+  --spacing-topbar: 56px;
+
+  --radius-sx: 0.625rem;
+
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Motion tokens — coherent easing + timing across surface transitions. */
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out-quart: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 260ms;
+
+  /* Radix data-state keyframes — enables Sheet + DropdownMenu animations
+     via the `animate-in` / `animate-out` utility classes referenced by
+     the primitives. */
+  --animate-in: enter var(--duration-base) var(--ease-out-soft);
+  --animate-out: exit var(--duration-fast) var(--ease-out-soft);
+}
+
+html {
+  color-scheme: dark;
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  min-height: 100vh;
+  font-family: var(--font-sans);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  border-color: var(--color-border);
+}
+
+/*
+ * Focus ring — every focus-visible target gets a 2px accent ring with a
+ * 2px background offset. Applied globally so we do not have to remember
+ * the class on every interactive element. Users who tab should always
+ * see where they are.
+ */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sx);
+}
+
+/*
+ * Radix Dialog / DropdownMenu / Sheet ship with `data-[state=open]` and
+ * `data-[state=closed]` attribute hooks. We back those with real keyframes
+ * so opening surfaces feel intentional and closing ones feel snappy.
+ */
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes exit {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+@keyframes fade-in-0 {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes fade-out-0 {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes zoom-in-95 {
+  from {
+    transform: scale(0.95);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+@keyframes zoom-out-95 {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(0.95);
+  }
+}
+@keyframes slide-in-from-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes slide-out-to-right {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+@keyframes slide-in-from-left {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes slide-out-to-left {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}
+@keyframes slide-in-from-top {
+  from {
+    transform: translateY(-100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes slide-out-to-top {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-100%);
+  }
+}
+@keyframes slide-in-from-bottom {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes slide-out-to-bottom {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+
+.animate-in {
+  animation-duration: var(--duration-base);
+  animation-timing-function: var(--ease-out-soft);
+  animation-fill-mode: forwards;
+}
+.animate-out {
+  animation-duration: var(--duration-fast);
+  animation-timing-function: var(--ease-out-soft);
+  animation-fill-mode: forwards;
+}
+.fade-in-0 { animation-name: fade-in-0; }
+.fade-out-0 { animation-name: fade-out-0; }
+.zoom-in-95 { animation-name: zoom-in-95; }
+.zoom-out-95 { animation-name: zoom-out-95; }
+.slide-in-from-right { animation-name: slide-in-from-right; }
+.slide-out-to-right { animation-name: slide-out-to-right; }
+.slide-in-from-left { animation-name: slide-in-from-left; }
+.slide-out-to-left { animation-name: slide-out-to-left; }
+.slide-in-from-top { animation-name: slide-in-from-top; }
+.slide-out-to-top { animation-name: slide-out-to-top; }
+.slide-in-from-bottom { animation-name: slide-in-from-bottom; }
+.slide-out-to-bottom { animation-name: slide-out-to-bottom; }
+
+/*
+ * Combined animations (Radix emits both `fade-in-0` and `zoom-in-95`
+ * class chunks together). CSS animation-name accepts a comma list — but
+ * the shortcut classes above are single-name. We concatenate here so
+ * `class="animate-in fade-in-0 zoom-in-95"` runs BOTH keyframes in sync
+ * rather than the second overwriting the first.
+ */
+.fade-in-0.zoom-in-95 { animation-name: fade-in-0, zoom-in-95; }
+.fade-out-0.zoom-out-95 { animation-name: fade-out-0, zoom-out-95; }
+
+/*
+ * Skeleton pulse — smoother than Tailwind default `animate-pulse`, driven
+ * by opacity + a subtle sheen for a "loading" feel instead of a strobe.
+ */
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 0.85; }
+}
+.animate-skeleton {
+  animation: skeleton-pulse 1.6s ease-in-out infinite;
+}
+
+/*
+ * Reduced motion — respect the user's preference and skip transforms.
+ * We still allow opacity fades because they don't cause vestibular
+ * discomfort and preserve the sense of state change.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .animate-in,
+  .animate-out {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+  }
+  .animate-skeleton {
+    animation-duration: 3s;
+  }
+  * {
+    transition-duration: 1ms !important;
+  }
+}

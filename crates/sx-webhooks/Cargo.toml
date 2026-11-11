@@ -1,0 +1,38 @@
+[package]
+name = "sx-webhooks"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "SentinelX webhooks: signature-verified, structured event projection for GitHub, Slack, and Jira."
+
+[lints]
+workspace = true
+
+[dependencies]
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+subtle = "2"
+axum = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+secrecy = { workspace = true }
+hex = { workspace = true }
+time = { workspace = true }
+chrono = { workspace = true }
+rand = { workspace = true }
+jsonwebtoken = { workspace = true }
+base64 = { workspace = true }
+uuid = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+wiremock = { workspace = true }
+tower = { workspace = true }

@@ -1,0 +1,87 @@
+{
+  "id": "ransomware",
+  "name": "Ransomware Outbreak",
+  "summary": "Encryption-based extortion event impacting endpoints / file shares. Covers crypto-locker, double-extortion (data theft + encrypt), and ransomware-as-a-service variants.",
+  "steps": [
+    {
+      "id": "prep-comms-tree",
+      "phase": "preparation",
+      "title": "Confirm crisis-comms tree and ransomware advisor on call",
+      "description": "Verify IR lead, legal counsel, executive comms, and an external DFIR retainer are reachable. Pull the latest ransom-negotiation playbook from the legal vault.",
+      "default_owner_role": "incident_commander",
+      "evidence_hints": ["IR comms tree URL", "DFIR retainer contract id"]
+    },
+    {
+      "id": "prep-backup-immutability",
+      "phase": "preparation",
+      "title": "Verify backup immutability + offline restore path",
+      "description": "Confirm the last full restore test, that backups are immutable / air-gapped, and that the restore runbook has been exercised in the last 90 days.",
+      "default_owner_role": "infrastructure_lead",
+      "evidence_hints": ["latest restore-test report"]
+    },
+    {
+      "id": "detect-scope-encryption",
+      "phase": "detection_analysis",
+      "title": "Scope encryption blast radius",
+      "description": "Identify affected hosts, shares, and cloud buckets. Capture extensions, ransom-note hash, drop locations. Pivot off process-creation telemetry and SMB/NFS write spikes.",
+      "default_owner_role": "soc_analyst",
+      "evidence_hints": ["EDR process tree", "SMB audit logs", "ransom note sample"]
+    },
+    {
+      "id": "detect-strain-identification",
+      "phase": "detection_analysis",
+      "title": "Identify ransomware family + TTPs",
+      "description": "Cross-check IOCs and ransom-note language against ID-Ransomware / NoMoreRansom + threat-intel feeds. Map known TTPs to MITRE ATT&CK techniques.",
+      "default_owner_role": "threat_intel_analyst",
+      "evidence_hints": ["IOC list", "ATT&CK technique mapping"]
+    },
+    {
+      "id": "contain-network-isolate",
+      "phase": "containment_eradication_recovery",
+      "title": "Network-isolate impacted hosts",
+      "description": "Quarantine affected endpoints at the EDR / NAC layer; block C2 IPs at the perimeter; disable inbound RDP and SMB to the affected VLAN.",
+      "default_owner_role": "network_operations",
+      "evidence_hints": ["NAC quarantine list", "firewall rule ids"]
+    },
+    {
+      "id": "contain-credential-rotation",
+      "phase": "containment_eradication_recovery",
+      "title": "Rotate domain admin + service account credentials",
+      "description": "Force-rotate KRBTGT twice (24h apart) plus domain admin, backup service, and break-glass accounts. Invalidate active Kerberos tickets and OAuth refresh tokens.",
+      "default_owner_role": "identity_lead",
+      "evidence_hints": ["AD audit log of password resets"]
+    },
+    {
+      "id": "eradicate-payload-removal",
+      "phase": "containment_eradication_recovery",
+      "title": "Remove payload and persistence",
+      "description": "Re-image impacted endpoints; remove scheduled tasks / WMI subscriptions / startup keys; verify EDR shows no residual loader activity for 24h.",
+      "default_owner_role": "endpoint_engineer",
+      "evidence_hints": ["EDR clean-bill report"]
+    },
+    {
+      "id": "recover-restore-from-backup",
+      "phase": "containment_eradication_recovery",
+      "title": "Restore from immutable backup",
+      "description": "Restore impacted data from the last known-clean immutable backup. Validate file integrity hashes before re-attaching to production.",
+      "default_owner_role": "infrastructure_lead",
+      "evidence_hints": ["restore log", "post-restore hash comparison"]
+    },
+    {
+      "id": "post-after-action-review",
+      "phase": "post_incident_activity",
+      "title": "Conduct after-action review",
+      "description": "Hold a blameless retro within 10 business days. Document timeline, dwell time, decisions, and gaps.",
+      "default_owner_role": "incident_commander",
+      "evidence_hints": ["AAR document"]
+    },
+    {
+      "id": "post-control-uplift",
+      "phase": "post_incident_activity",
+      "title": "File control-uplift tickets",
+      "description": "Translate each identified gap into a tracked engineering ticket with an owner and a 30/60/90 deadline. Link tickets back to this incident.",
+      "default_owner_role": "incident_commander",
+      "evidence_hints": ["ticket ids"]
+    }
+  ]
+}

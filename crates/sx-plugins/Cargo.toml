@@ -1,0 +1,57 @@
+[package]
+name = "sx-plugins"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "SentinelX plugin SDK: WASM-sandboxed host (wasmtime) + capability-scoped host fns + HMAC-signed outbound webhook dispatcher (CRIT-001, builds on P3-007)."
+
+[lints]
+workspace = true
+
+[features]
+# Default: the WASM sandbox is the production execution mode.
+# Spec CRIT-001 acceptance: `wasm-host` default ON.
+default = ["wasm-host"]
+
+# Enable the wasmtime-backed `WasmPluginHost` and the `wat`-fed
+# test fixtures. Off → the WASM symbols are entirely absent from
+# the compiled artefact (zero binary cost on legacy-only builds).
+wasm-host = ["dep:wasmtime"]
+
+# Opt-in legacy in-process trait loader. Off by default; the
+# host rejects any manifest tagged `legacy-cdylib` in production
+# (see `WasmPluginHost::load_manifest`).
+legacy-cdylib = []
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+hex = { workspace = true }
+hmac = { workspace = true }
+reqwest = { workspace = true }
+secrecy = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+subtle = "2"
+thiserror = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
+
+# WASM sandbox runtime (CRIT-001). Optional — guarded by the
+# `wasm-host` feature so legacy-only consumers do not pay the
+# compile cost.
+wasmtime = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+wiremock = { workspace = true }
+# `wat` (WebAssembly text) is used by the integration suite to
+# compile small test plugins down to a `Vec<u8>` of wasm bytes.
+wat = { workspace = true }

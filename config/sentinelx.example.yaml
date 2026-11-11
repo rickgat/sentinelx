@@ -1,0 +1,470 @@
+# SentinelX configuration template.
+#
+# Copy to config/sentinelx.yaml (or another path) and point the
+# SENTINELX_CONFIG environment variable at it. Every value below MUST be
+# supplied — there are no built-in defaults. Secret values should come from
+# environment variables (SENTINELX__*) or a secret manager, never from a
+# file committed to source control.
+
+server:
+  bind_addr: "0.0.0.0:8080"
+  # Production: must allow in-flight requests to drain before SIGTERM completes.
+  shutdown_timeout: 30
+  request_timeout: 30
+  max_body_bytes: 1048576
+  rate_limit:
+    limit_per_minute: 600
+    burst: 60
+    enabled: true
+
+database:
+  url: "postgres://sentinelx:CHANGE_ME@localhost:5432/sentinelx?sslmode=prefer"
+  max_connections: 20
+  min_connections: 2
+  acquire_timeout: 10
+  idle_timeout: 300
+  statement_timeout_ms: 15000
+  migrate_on_start: true
+  enabled: false   # set to true to use Postgres instead of in-memory repositories
+
+redis:
+  url: "redis://:CHANGE_ME@localhost:6379/0"
+  pool_size: 10
+  command_timeout: 2
+  enabled: false   # set to true to use Redis-backed kill switch + lockout tracker
+
+bootstrap:
+  enabled: false
+  admin_tenant_slug: default
+  admin_tenant_name: "Default Tenant"
+  admin_email: admin@example.invalid
+  admin_password_phc: "$argon2id$v=19$m=19456,t=2,p=1$REPLACE_SALT$REPLACE_HASH"
+  # When true AND `enabled` is true AND Postgres is disabled, the monolith
+  # seeds deterministic demo data (tenant + 3 engagements + 5 assets + 8
+  # findings) into the in-memory repositories. Leave `false` for prod.
+  seed_demo_data: false
+
+collab:
+  # OOB collaborator receivers — DNS / HTTP listeners used to verify blind
+  # vulnerabilities. Disabled by default so a developer can boot without
+  # binding extra ports.
+  enabled: false
+  base_domain: "oob.sentinelx.invalid"
+  dns_bind: "127.0.0.1:5353"
+  http_bind: "127.0.0.1:9080"
+  answer_ipv4: "127.0.0.1"
+  callback_ttl: 259200          # 72 hours
+  http_body_capture_bytes: 4096
+  smtp_max_message_bytes: 65536
+
+cloud:
+  # Cloud-provider credentials. All disabled by default. Flip `enabled: true`
+  # on each provider you want the monolith's inventory pipeline to exercise.
+  aws:
+    enabled: false
+    access_key_id: ""
+    secret_access_key: ""
+    region: "us-east-1"
+  gcp:
+    enabled: false
+    project_id: ""
+    access_token: ""
+  azure:
+    enabled: false
+    subscription_id: ""
+    tenant_id: ""
+    access_token: ""
+
+jwt:
+  # JWT issuer / audience / signing material. For HS256 the `signing_key`
+  # is the raw HMAC secret (>= 32 bytes); `verifying_key` MUST be omitted
+  # (the symmetric secret is reused). For RS256 / EdDSA the `signing_key`
+  # is the PEM-encoded private key and `verifying_key` MUST be the
+  # PEM-encoded public counterpart.
+  #
+  # Secret env-var overrides (preferred over committing values to a file):
+  #   SENTINELX__JWT__SIGNING_KEY    — overrides `jwt.signing_key`
+  #   SENTINELX__JWT__VERIFYING_KEY  — overrides `jwt.verifying_key`
+  issuer: "https://sentinelx.example.invalid"
+  audience: "sentinelx-api"
+  signing_key: "CHANGE_ME_TO_A_BASE64_HS256_KEY_AT_LEAST_32_BYTES_LONG_=="
+  key_id: "kid-2026-05"
+  algorithm: "HS256"
+  # PEM-encoded public key. Leave commented out for HS256; required for
+  # RS256 / EdDSA. Boot will fail with "missing required configuration:
+  # jwt.verifying_key" if an asymmetric algorithm is selected without one.
+  # verifying_key: |
+  #   -----BEGIN PUBLIC KEY-----
+  #   ...
+  #   -----END PUBLIC KEY-----
+  access_ttl: 900
+  refresh_ttl: 604800
+  leeway_seconds: 30
+
+telemetry:
+  service_name: "sx-monolith"
+  environment: "dev"
+  log_level: "info"
+  log_format: "json"
+  otlp_endpoint: ~
+  prometheus_bind: ~
+  sample_ratio: 0.1
+
+risk:
+  weights:
+    w_severity: 0.25
+    w_exploit: 0.20
+    w_exposure: 0.15
+    w_criticality: 0.20
+    w_business_impact: 0.15
+    w_chain: 0.05
+  kev_boost_factor: 1.25
+  epss_threshold_act: 0.50
+
+engagement:
+  max_concurrent: 16
+  default_intensity: "normal"
+  kill_switch_channel: "sentinelx.killswitch"
+  killswitch_watchdog_interval: 1
+  global_denylist:
+    - kind: "regex"
+      value: "^.*\\.gov$"
+      reason: "government domains require explicit authorization"
+    - kind: "regex"
+      value: "^.*\\.mil$"
+      reason: "military domains require explicit authorization"
+
+iam:
+  password:
+    m_cost: 19456
+    t_cost: 2
+    p_cost: 1
+    output_len: 32
+    salt_len: 16
+  session_inactivity_timeout: 1800
+  mfa_required: true
+  lockout:
+    threshold: 5
+    window: 900
+    duration: 900
+  attempt_email_pepper: "CHANGE_ME_TO_A_LONG_RANDOM_PEPPER_AT_LEAST_16_BYTES"
+
+discovery:
+  dns_resolvers:
+    - "1.1.1.1:53"
+    - "9.9.9.9:53"
+  max_concurrent_probes: 64
+  per_target_rps_limit: 10
+  http_user_agent: "SentinelX/0.1 (+https://sentinelx.example.invalid)"
+  http_timeout: 10
+  port_scan_max_ports: 1024
+
+oidc:
+  # OIDC verifier — when enabled, the SX API exposes
+  # POST /v1/auth/oidc/exchange. The dashboard hands the
+  # IdP-issued id_token to this endpoint, which validates the signature
+  # against `jwks_url`, checks `iss`/`aud`/`exp`, and returns an
+  # SX-internal access + refresh token. Disabled by default so a freshly
+  # cloned checkout never reaches an external IdP.
+  #
+  # Mandatory keys when `enabled: true`:
+  #   issuer       — IdP's published issuer (the `iss` claim emitted on tokens)
+  #   audience     — OIDC client id (the `aud` claim emitted on tokens)
+  #   jwks_url     — HTTPS URL of the IdP's JWKS endpoint
+  enabled: false
+  issuer: ""
+  audience: ""
+  jwks_url: ""
+  jwks_cache_secs: 3600
+  jit_provision: false
+  default_roles: ["analyst"]
+  default_tenant_id: ~
+  tenant_id_claim: "tenant_id"
+
+mtls:
+  # Mutual TLS configuration for inter-service listeners. Disabled by default
+  # so a freshly cloned checkout never tries to bind a TLS port without
+  # operator-supplied certificate material. When enabled, the sx-mtls crate
+  # loads the cert + key (and optional client CA bundle) and hot-reloads them
+  # on disk changes via the `notify` filesystem watcher.
+  #
+  # Mandatory keys when `enabled: true`:
+  #   cert_path  — path to PEM-encoded server certificate chain
+  #   key_path   — path to PEM-encoded server private key (PKCS#8 or SEC1)
+  # When `require_client_cert: true`, `client_ca_path` is also required.
+  enabled: false
+  cert_path: ""
+  key_path: ""
+  client_ca_path: ""
+  require_client_cert: false
+  reload_interval_secs: 60
+
+anti_abuse:
+  # Anti-abuse detector thresholds. Disabled by default — the
+  # AntiAbuseLayer middleware is not registered until an operator flips
+  # `enabled: true`. When enabled, the router wraps the authenticated
+  # subrouter with the detector, which emits structured audit events
+  # (target = "abuse") on JWT replay, per-IP rate anomalies, and
+  # user-agent rotation. The detector NEVER blocks a request; refusal is
+  # the rate-limit middleware's job.
+  enabled: false
+  replay_window_secs: 300         # 5 minutes
+  rate_window_secs: 60            # 60-second rolling sample window
+  rate_anomaly_multiplier: 3.0    # flag IPs > 3x rolling median
+  rate_min_samples: 4             # don't flag until we have 4 samples
+  agent_window_secs: 600          # 10 minutes
+  agent_threshold: 5              # > 5 distinct UAs from one IP fires
+
+ai_copilot:
+  # Anthropic Claude credentials for the remediation copilot.
+  # Disabled by default so a freshly cloned checkout never reaches
+  # api.anthropic.com. Flip `enabled: true` and supply `api_key` to wire
+  # in `sx-remediation`'s RealClaudeClient pointed at
+  # https://api.anthropic.com/v1/messages. `model`, `max_tokens`, and
+  # `temperature` keep their listed defaults when omitted.
+  #
+  # Secret env-var overrides (preferred — never commit the key to a file):
+  #   SENTINELX__AI_COPILOT__API_KEY  — overrides `ai_copilot.api_key`
+  #
+  # The api_key is wrapped in `secrecy::SecretString` and is redacted from
+  # Debug output, panic messages, and tracing spans. It is only exposed
+  # when the remediation crate writes the `x-api-key` header on outbound
+  # requests.
+  enabled: false
+  api_key: ""
+  model: "claude-3-5-sonnet-latest"
+  max_tokens: 1024
+  temperature: 0.2
+  # External LLM endpoints the AI red-team harness may probe
+  # (POST /v1/ai-audit/run-external). Empty by default. Each entry
+  # references its auth token BY ENV-VAR NAME (`auth_env`) — the key is
+  # never written here, in the API, or in logs. Probing an entry still
+  # requires an Active, in-window, approved engagement whose scope
+  # contains the target host; registration alone grants no authority.
+  # external_targets:
+  #   - id: "openai-prod"
+  #     url: "https://api.openai.com/v1/chat/completions"
+  #     auth_env: "OPENAI_API_KEY"      # token read from this env var
+  #     auth_header: "authorization"    # default
+  #     auth_scheme: "Bearer "          # default
+  #     # `{PROMPT}` is replaced with the JSON-escaped probe (quotes included):
+  #     request_template: '{"model":"gpt-4o","messages":[{"role":"user","content":{PROMPT}}]}'
+  #     response_pointer: "/choices/0/message/content"   # RFC-6901 JSON pointer
+
+github:
+  # GitHub credentials for the autonomy auto-remediation PR generator.
+  # Disabled by default so a freshly cloned checkout never reaches
+  # api.github.com. Flip `enabled: true` and supply ONE of:
+  #
+  #   1. GitHub App installation (preferred):
+  #        app_id: 123456
+  #        installation_id: 7890123
+  #        private_key: |
+  #          -----BEGIN RSA PRIVATE KEY-----
+  #          ...
+  #          -----END RSA PRIVATE KEY-----
+  #
+  #   2. Personal access token (fallback, scope `repo`):
+  #        personal_access_token: "ghp_..."
+  #
+  # When App credentials are present they take precedence over the PAT.
+  enabled: false
+  app_id: ~
+  installation_id: ~
+  private_key: ""
+  personal_access_token: ""
+
+intel_feeds:
+  # Threat-intelligence feed (TAXII 2.x) ingestion. Disabled by default so
+  # a freshly cloned checkout never reaches an external TAXII server.
+  # Flip `enabled: true` and supply the TAXII discovery / collection root
+  # endpoint, a bearer token, and the target collection id; the monolith
+  # then spawns a background tokio task that polls the collection every
+  # `poll_interval_secs` seconds. The full TAXII network adapter is
+  # deferred — the current build only logs "intel_feeds: TAXII poller
+  # deferred" on the configured cadence so the wiring can be exercised
+  # without external dependencies.
+  enabled: false
+  taxii_endpoint: ""
+  taxii_bearer: ""
+  collection_id: ""
+  poll_interval_secs: 3600
+
+graph:
+  # Knowledge-graph (Neo4j) adapter. Disabled by default so a freshly
+  # cloned checkout never tries to open a Bolt connection. Flip
+  # `neo4j_enabled: true` and supply the Bolt URI, username, password
+  # and database name; the monolith composition root then constructs a
+  # `Neo4jKnowledgeGraph` over that pool and registers it as the
+  # `GraphAttackPathsPort`, replacing the in-memory stub. Boot logs
+  # NEVER include the password — only the host extracted from
+  # `neo4j_uri`.
+  neo4j_enabled: false
+  neo4j_uri: ""
+  neo4j_user: ""
+  neo4j_password: ""
+  neo4j_database: ""
+
+secrets:
+  # Envelope-encryption / Key Encryption Key (KEK) settings.
+  #
+  # `provider: disabled` (default) leaves the existing Vault Transit
+  # pipeline in place. Set `provider: azure_kv` and populate the
+  # `secrets.kek.azure` block to wrap per-tenant DEKs with an Azure
+  # Key Vault key via the data-plane REST API (P1-007).
+  #
+  # The AAD client_secret is held in `secrecy::SecretString`: it is
+  # redacted from `Debug` and zeroised on drop, and the dashboard never
+  # surfaces its value — only the provider name.
+  kek:
+    provider: disabled
+    # azure:
+    #   vault_url: "https://my-vault.vault.azure.net"
+    #   key_name: "sentinelx-kek"
+    #   key_version: null            # null => Key Vault selects the latest
+    #   tenant_id: "00000000-0000-0000-0000-000000000001"
+    #   client_id: "00000000-0000-0000-0000-000000000002"
+    #   client_secret: ""            # set via env: SENTINELX__SECRETS__KEK__AZURE__CLIENT_SECRET
+
+# Risk-Based Authentication (RBA) — TOP5-#3-P2-005.
+#
+# Today this block only controls the synthetic-finding emission path.
+# Per-tenant scorer thresholds + signal weights stay on the in-process
+# `sx_rba::RbaConfig` surface (administered via `POST /v1/rba/config/{tenant}`)
+# and are intentionally NOT mirrored here.
+#
+# `finding_emission` surfaces high-risk RBA `Block` decisions as
+# synthetic Finding rows so the SOC sees them in the same queue as
+# DAST/CSPM/DLP findings. Disabled by default — Allow / StepUpMfa
+# decisions are never surfaced regardless of this setting.
+#
+# When wiring against Postgres, set `system_engagement_id` to a real row
+# id in your `engagements` table — the FK on `findings.engagement_id`
+# will otherwise reject the insert. The in-memory finding adapter used
+# in dev / tests accepts the all-zero default unchanged.
+# SAML 2.0 Service Provider configuration (P0-004). Disabled by
+# default — when an operator flips `enabled: true`, the three
+# `/v1/auth/saml/{metadata,acs,logout}` endpoints become active.
+#
+# TOP5-#1-PHASE-2B: the `xmldsig.verifier` knob below is now
+# LIVE — the SAML SP composition root constructs the verifier from
+# this value at boot via `sx_iam::service::saml::build_verifier`
+# and routes ACS evaluations through it. Default stays `handrolled`
+# (today's production); the flag-flip to `shadow` / `xmlsec1` is an
+# operational decision the PO makes AFTER the cutover SLO fires
+# (zero shadow-mode disagreements for 14 consecutive days against
+# real production traffic — see docs/adr/0022 §Decision bullet 5).
+#
+# See docs/adr/0022-saml-xmldsig-libxmlsec1-replacement.md for the
+# full ADR (supersedes ADR-0010).
+# See docs/runbooks/supply-chain.md §8 for the libxmlsec1 CVE
+# tracking pipeline and the hot-config rollback playbook.
+#
+# saml:
+#   enabled: false
+#   entity_id: "https://sp.example/saml"
+#   acs_path: "/v1/auth/saml/acs"
+#   slo_path: "/v1/auth/saml/logout"
+#   clock_skew: 30           # seconds
+#   replay_ttl: 300          # seconds
+#   xmldsig:
+#     # Verifier selection — TOP5-#1, ADR-0022.
+#     # One of: handrolled | shadow | xmlsec1
+#     #   handrolled — today's production verifier (default).
+#     #   shadow     — runs hand-rolled (authoritative) + libxmlsec1
+#     #                (observation); mismatches surface via the
+#     #                `xmldsig_shadow_mismatch_total` Prometheus
+#     #                counter and `xmldsig.shadow.mismatch.*`
+#     #                tracing events. Operators flip here AFTER
+#     #                deploying PHASE-2B and confirming the
+#     #                composition root constructs the dispatcher
+#     #                (look for the `xmldsig.verifier.selected`
+#     #                tracing event at startup).
+#     #   xmlsec1    — libxmlsec1 only (post-cutover steady state);
+#     #                only flip after the SLO gate in
+#     #                docs/runbooks/supply-chain.md §8.5 fires.
+#     # NOTE: `shadow` / `xmlsec1` require sx-xmlsec to have been
+#     # compiled with the `xmlsec1` Cargo feature AND the host to
+#     # have `libxmlsec1-dev` / `libxml2-dev` system packages
+#     # installed. The adapter logs a `warn!` and falls back to
+#     # `handrolled` if construction fails, so misconfiguration is
+#     # visible without an outage.
+#     # See docs/runbooks/supply-chain.md §8 for the cutover SLO
+#     # and libxmlsec1 CVE tracking.
+#     verifier: "handrolled"
+
+rba:
+  finding_emission:
+    enabled: false
+    block_threshold_score: 75               # 0..=100; Block decisions with score < threshold do NOT mint a finding
+    system_engagement_id: "00000000-0000-0000-0000-000000000000"
+    system_asset_id: "00000000-0000-0000-0000-000000000000"
+
+integrations:
+  # Outbound ticketing + alerting integrations (TOP5-#5). The monolith
+  # fan-out emits an IncidentEvent to every enabled vendor sink when
+  # (a) a Critical finding lands via FOUND-001's `insert(...)` path,
+  # (b) a SOC playbook fires, or (c) the audit chain verifier detects
+  # a hash-chain break. Every vendor below ships disabled by default,
+  # so a freshly cloned checkout never reaches Atlassian, PagerDuty, or
+  # Linear.
+  # Opsgenie.
+  #
+  # Secret env-var overrides (preferred over committing values):
+  #   SENTINELX__INTEGRATIONS__JIRA__API_TOKEN
+  #   SENTINELX__INTEGRATIONS__JIRA__BEARER_TOKEN
+  #   SENTINELX__INTEGRATIONS__PAGERDUTY__ROUTING_KEY
+  #   SENTINELX__INTEGRATIONS__LINEAR__API_KEY
+  #   SENTINELX__INTEGRATIONS__OPSGENIE__API_KEY
+  jira:
+    enabled: false
+    base_url: ""                  # e.g. "https://acme.atlassian.net/"
+    project_key: ""               # e.g. "SEC"
+    issue_type: "Task"
+    auth_kind: "basic_auth"       # one of: basic_auth | bearer
+    email: ""
+    api_token: ""
+    bearer_token: ""
+    external_id_custom_field: null
+
+  pagerduty:
+    enabled: false
+    events_url: "https://events.pagerduty.com/v2/enqueue"
+    routing_key: ""               # 32-char integration key
+    source_override: null
+
+  # Linear GraphQL adapter (TOP5-#5-FU2). Posts an IssueCreate mutation
+  # to https://api.linear.app/graphql. NOTE: the api_key travels verbatim
+  # in the Authorization header — Linear's docs do NOT use the "Bearer "
+  # prefix. OAuth 2.0 is out of scope for the MVP.
+  linear:
+    enabled: false
+    api_url: "https://api.linear.app/graphql"
+    api_key: ""                   # raw Linear API key
+    team_id: ""                   # Linear team UUID (required when enabled)
+    label_ids: []                 # optional list of Linear label UUIDs
+  # Opsgenie Alerts API v2 adapter (TOP5-#5-FU3).
+  # Auth: `Authorization: GenieKey <api_key>` (note the `GenieKey ` prefix).
+  # SentinelX severity -> Opsgenie priority: Critical->P1, High->P2,
+  # Medium->P3, Low->P4, Info->P5 (one-to-one, no collapse).
+  opsgenie:
+    enabled: false
+    # Host root only. The adapter appends `/v2/alerts`.
+    # US datacentre (default): "https://api.opsgenie.com"
+    # EU residency:            "https://api.eu.opsgenie.com"
+    api_url: "https://api.opsgenie.com"
+    api_key: ""                   # per-team integration API key
+    source_override: null         # null => emitting tenant slug
+
+  # ServiceNow Table API adapter (TOP5-#5-FU1).
+  # POSTs to {base_url}/api/now/table/incident with HTTP Basic auth.
+  # SentinelX severity -> ITIL (impact, urgency):
+  #   Critical -> (1, 1), High -> (1, 2), Medium -> (2, 3),
+  #   Low -> (3, 3), Info -> (3, 4).
+  # Password override: SENTINELX__INTEGRATIONS__SERVICENOW__PASSWORD
+  servicenow:
+    enabled: false
+    base_url: ""                  # e.g. "https://acme.service-now.com/"
+    user: ""                      # basic-auth user (typically a dedicated itil-role integration user)
+    password: ""                  # basic-auth password (prefer env override)
+    assignment_group: null        # optional sys_id of the routing group

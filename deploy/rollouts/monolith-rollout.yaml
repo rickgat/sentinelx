@@ -1,0 +1,206 @@
+# Argo Rollouts Rollout CR for sx-monolith.
+#
+# Replaces the Helm chart's Deployment template — the chart MUST be
+# rendered with `rollout.enabled: true` so the Deployment isn't also
+# created (or the two will fight over the same ReplicaSet selector).
+#
+# Canary plan:
+#   step 0  -> setWeight 25%           (25% of traffic on new revision)
+#   step 1  -> pause   2m              (soak under live traffic)
+#   step 2  -> analysis (error + kill) (gate #1 — abort if SLO breached)
+#   step 3  -> setWeight 50%
+#   step 4  -> pause   3m
+#   step 5  -> analysis (error + kill) (gate #2)
+#   step 6  -> setWeight 75%
+#   step 7  -> pause   3m
+#   step 8  -> analysis (error + kill) (gate #3)
+#   step 9  -> setWeight 100%
+#
+# Any AnalysisRun returning Failed causes the Rollout to abort and
+# scale the canary ReplicaSet to zero. The stable Service keeps
+# serving 100% of traffic from the previous revision.
+#
+# Control mappings:
+#   NIST SP 800-53 CM-3 (Change control)
+#   NIST SP 800-53 SI-4 (System monitoring)
+#   ISO/IEC 27001 A.8.32 (Change management)
+#   SOC2 CC8.1 (Change management)
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: sx-monolith
+  namespace: sentinelx
+  labels:
+    app.kubernetes.io/name: sx-monolith
+    app.kubernetes.io/part-of: sentinelx
+    app.kubernetes.io/component: app
+  annotations:
+    # When Argo CD applies this Rollout, do NOT prune the live Deployment
+    # named sx-monolith if it still exists from a previous chart-only
+    # install — the cutover is handled by the migration runbook.
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  replicas: 3
+  revisionHistoryLimit: 5
+  # Wait up to 10 minutes for an analysis step before marking degraded.
+  progressDeadlineSeconds: 600
+  # Don't abort on a single failed AnalysisRun — leave that to the
+  # AnalysisTemplate's own failureLimit. The Rollout-level abort kicks
+  # in only when the analysis itself reports Failed.
+  progressDeadlineAbort: true
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sx-monolith
+  strategy:
+    canary:
+      canaryService: sx-monolith-canary
+      stableService: sx-monolith-stable
+      # Don't let the canary deflate below the stable count during a step.
+      maxUnavailable: 0
+      maxSurge: 25%
+      # Scale the canary down to 0 immediately on abort, no lingering pods.
+      scaleDownDelaySeconds: 30
+      # Inject this analysis at every analysis step below.
+      analysis:
+        templates:
+          - templateName: sx-monolith-canary-analysis
+        args:
+          - name: service-name
+            value: sx-monolith-canary
+          - name: namespace
+            value: sentinelx
+      steps:
+        # ---- 25% ---------------------------------------------------------
+        - setWeight: 25
+        - pause:
+            duration: 2m
+        - analysis:
+            templates:
+              - templateName: sx-monolith-canary-analysis
+            args:
+              - name: service-name
+                value: sx-monolith-canary
+              - name: namespace
+                value: sentinelx
+        # ---- 50% ---------------------------------------------------------
+        - setWeight: 50
+        - pause:
+            duration: 3m
+        - analysis:
+            templates:
+              - templateName: sx-monolith-canary-analysis
+            args:
+              - name: service-name
+                value: sx-monolith-canary
+              - name: namespace
+                value: sentinelx
+        # ---- 75% ---------------------------------------------------------
+        - setWeight: 75
+        - pause:
+            duration: 3m
+        - analysis:
+            templates:
+              - templateName: sx-monolith-canary-analysis
+            args:
+              - name: service-name
+                value: sx-monolith-canary
+              - name: namespace
+                value: sentinelx
+        # ---- 100% --------------------------------------------------------
+        - setWeight: 100
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sx-monolith
+        app.kubernetes.io/part-of: sentinelx
+      annotations:
+        linkerd.io/inject: enabled
+        config.linkerd.io/proxy-cpu-request: "100m"
+        config.linkerd.io/proxy-memory-request: "64Mi"
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: sx-monolith
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: sx-monolith
+          # The image tag is patched at sync time by the GitHub Actions
+          # release workflow (see .github/workflows/release.yml). The
+          # REPLACE_ME literal blocks unsigned/unbuilt deploys.
+          image: ghcr.io/sentinelx/sx-monolith:REPLACE_ME
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          env:
+            - name: SX_BIND
+              value: "0.0.0.0:8080"
+            - name: SX_METRICS_BIND
+              value: "0.0.0.0:9090"
+            - name: SX_ROLLOUT_REVISION
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['rollouts-pod-template-hash']
+          envFrom:
+            - secretRef:
+                name: sx-monolith-secrets
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /var/cache/sentinelx
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: cache
+          emptyDir: {}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: sx-monolith

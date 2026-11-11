@@ -1,0 +1,47 @@
+# Requires both requests and limits for cpu + memory on every container.
+# Without limits, a single workload can starve the rest of the node.
+#
+# Maps to NIST SC-6 (Resource availability), ISO/IEC 27001 A.8.6.
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: sxrequireresourcelimits
+  annotations:
+    description: Require cpu/memory requests + limits on all containers.
+spec:
+  crd:
+    spec:
+      names:
+        kind: SxRequireResourceLimits
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package sxrequireresourcelimits
+
+        import rego.v1
+
+        pod_spec := input.review.object.spec.template.spec if {
+          input.review.object.spec.template.spec
+        }
+
+        required_keys := {"cpu", "memory"}
+
+        violation contains {"msg": msg} if {
+          some container in pod_spec.containers
+          some k in required_keys
+          not container.resources.requests[k]
+          msg := sprintf(
+            "container %q is missing resources.requests.%v",
+            [container.name, k],
+          )
+        }
+
+        violation contains {"msg": msg} if {
+          some container in pod_spec.containers
+          some k in required_keys
+          not container.resources.limits[k]
+          msg := sprintf(
+            "container %q is missing resources.limits.%v",
+            [container.name, k],
+          )
+        }

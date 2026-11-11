@@ -1,0 +1,70 @@
+# Helm values overlay for the falcosecurity/falco chart.
+# Mapped controls: NIST SI-4, ISO/IEC 27001 A.8.16, SOC2 CC7.2.
+driver:
+  enabled: true
+  kind: modern-bpf
+
+collectors:
+  enabled: true
+  kubernetes:
+    enabled: true
+
+falco:
+  json_output: true
+  json_include_output_property: true
+  log_level: info
+  syscall_event_drops:
+    actions:
+      - log
+      - alert
+    rate: 0.03333
+    max_burst: 10
+  buffered_outputs: true
+  outputs:
+    rate: 1
+    max_burst: 1000
+  http_output:
+    enabled: true
+    # Send to Falcosidekick which fans out to OpenSearch + Slack.
+    url: http://falcosidekick:2801
+
+falcosidekick:
+  enabled: true
+  webui:
+    enabled: true
+  config:
+    slack:
+      webhookurl: REPLACE_ME  # populate from Vault `sentinelx/data/falco/slack-webhook`
+      channel: "#sentinelx-runtime-alerts"
+      minimumpriority: warning
+    opensearch:
+      hostport: https://opensearch.monitoring.svc.cluster.local:9200
+      index: falco
+      minimumpriority: notice
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+# Use the SentinelX rule file. The chart accepts custom rule files via
+# `customRules.<filename>` — populated by `--set-file` at install time.
+customRules:
+  sentinelx_runtime_rules.yaml: ""
+
+tty: false
+serviceMonitor:
+  create: true
+
+# Run as non-root where possible. The eBPF driver still needs CAP_SYS_BPF.
+securityContext:
+  runAsNonRoot: false
+  privileged: false
+
+# Tolerate the standard taints so Falco runs on every node, including the
+# system pool.
+tolerations:
+  - operator: Exists

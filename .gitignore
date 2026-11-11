@@ -1,0 +1,73 @@
+/target
+**/target/
+**/*.rs.bk
+Cargo.lock.bak
+.env
+.env.local
+.env.*.local
+/config/sentinelx.yaml
+/config/sentinelx.*.yaml
+!/config/sentinelx.example.yaml
+!/config/sentinelx.dev.example.yaml
+*.swp
+*.swo
+.DS_Store
+.idea/
+.vscode/
+*.iml
+/coverage
+/dist
+/node_modules
+**/node_modules/
+/.cache
+/.direnv
+result
+result-*
+*.profraw
+*.profdata
+
+# Dashboard
+/web/dashboard/.next
+/web/dashboard/.turbo
+/web/dashboard/node_modules
+/web/dashboard/coverage
+/web/dashboard/playwright-report
+/web/dashboard/test-results
+/web/dashboard/.env.local
+/web/dashboard/.env.*.local
+/web/dashboard/.env
+
+# Tools
+*.bak
+*.log
+
+# Per-developer Claude Code settings + agent worktrees
+/.claude/settings.local.json
+/.claude/worktrees/
+
+# SBOM artifacts — regenerated in CI (see .github/workflows/audit.yml
+# `sbom-and-grype` job). Keep the checked-in README.md that documents
+# reproduction, but exclude the multi-MB JSON payloads.
+/sbom/*.json
+
+# Project documentation is kept local-only (not versioned), EXCEPT the
+# paths the application reads at runtime: sx-compliance SOC2/ISO27001
+# evidence collectors (file_evidence/dir_evidence) and the sx-cli
+# `compliance` default PCI-DSS source.
+/docs/*
+!/docs/adr/
+!/docs/compliance/
+!/docs/operations/
+!/docs/runbooks/
+!/docs/security/
+!/docs/ARCHITECTURE.md
+!/docs/onboarding.md
+!/docs/slos.md
+
+# Ad-hoc reports and legacy requirement drafts (local only; canonical
+# versions live in docs/PRD.md and docs/TRD.md)
+/SECURITY_ASSESSMENT*.md
+/SECURITY_FIXES_APPLIED.md
+/AUTHZ_AUDIT.md
+/SentinelX_PRD.txt
+/SentinelX_TRD.md

@@ -1,0 +1,177 @@
+---
+# Playwright end-to-end suite (L1, SX-REVIEW-002).
+#
+# Boots the Rust monolith (`sx-monolith`) and the Next.js dashboard side by
+# side, then runs the Playwright specs in `web/dashboard/e2e/` against the
+# live stack. Reproduces the local orchestration documented in
+# `web/dashboard/e2e/README.md`.
+#
+# Troubleshooting:
+#   - Spec failures, seed-account env vars, and CI-mode tuning are all
+#     documented in `web/dashboard/e2e/README.md`. Read that first.
+#   - The monolith and dashboard logs are uploaded as artifacts on every
+#     run (success or failure) under the `playwright-report` artifact, in
+#     addition to `playwright-report/` and `test-results/`.
+#   - The README says `cargo run -p sx-api`; that crate is actually a
+#     library. The binary is `sx-monolith`, which is what this workflow
+#     boots. See `services/sx-monolith/src/main.rs`.
+#   - Dev config (`config/sentinelx.dev.example.yaml`) binds the monolith
+#     to 127.0.0.1:8080 with `database.enabled = false` (in-memory
+#     adapters + seed data). The dashboard's `NEXT_PUBLIC_SX_API_URL`
+#     defaults to `http://localhost:8080`, so both ends agree.
+
+name: playwright
+
+"on":
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+  RUSTFLAGS: "-D warnings"
+  # Dashboard <-> monolith wiring. The dashboard's runtime env validator
+  # (web/dashboard/src/lib/env.ts) requires NEXT_PUBLIC_SX_API_URL to be a
+  # valid URL; defaulting it here keeps `next dev` happy without an
+  # `.env.local` file.
+  NEXT_PUBLIC_SX_API_URL: "http://127.0.0.1:8080"
+  # Seed accounts — match `web/dashboard/e2e/README.md` §Seed accounts
+  # and the bootstrap block in `config/sentinelx.dev.example.yaml`.
+  # Tenant id is `bootstrap.admin_tenant_id`; admin password is
+  # `sentinelx-admin-pw` (SX-REVIEW-002 C2); analyst password is
+  # `Analyst!Password1` (L1-FU1). Surfaced explicitly so future
+  # maintainers can swap in staging credentials by editing one place.
+  E2E_TENANT_ID: "01010101-0101-0101-0101-010101010101"
+  E2E_USER_EMAIL: "analyst@sentinelx.dev"
+  E2E_USER_PASSWORD: "Analyst!Password1"
+  E2E_ADMIN_TENANT_ID: "01010101-0101-0101-0101-010101010101"
+  E2E_ADMIN_EMAIL: "admin@sentinelx.dev"
+  E2E_ADMIN_PASSWORD: "sentinelx-admin-pw"
+
+jobs:
+  e2e:
+    name: playwright (chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: playwright
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/dashboard/package-lock.json
+
+      - name: Install dashboard dependencies
+        working-directory: web/dashboard
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: web/dashboard
+        run: npx playwright install --with-deps chromium
+
+      - name: Build sx-monolith (release)
+        run: cargo build -p sx-monolith --release
+
+      # Materialise the dev YAML in place. The example file is the
+      # canonical dev quick-start config (matching the README seed
+      # credentials) and is harmless to copy verbatim — every secret in
+      # it is a documented placeholder. No new CI-only YAML committed.
+      - name: Materialise dev config
+        run: |
+          cp config/sentinelx.dev.example.yaml config/sentinelx.dev.yaml
+          echo "SENTINELX_CONFIG=$(pwd)/config/sentinelx.dev.yaml" \
+            >> "$GITHUB_ENV"
+
+      - name: Boot sx-monolith (background)
+        run: |
+          mkdir -p /tmp/sx-e2e
+          nohup ./target/release/sx-monolith \
+            > /tmp/sx-e2e/sx-monolith.log 2>&1 &
+          echo $! > /tmp/sx-e2e/sx-monolith.pid
+          for i in $(seq 1 60); do
+            if nc -z 127.0.0.1 8080; then
+              echo "sx-monolith listening on 127.0.0.1:8080 after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "sx-monolith failed to open 127.0.0.1:8080 in 60s"
+          tail -n 200 /tmp/sx-e2e/sx-monolith.log || true
+          exit 1
+
+      - name: Boot dashboard (next dev, background)
+        working-directory: web/dashboard
+        run: |
+          nohup npm run dev > /tmp/sx-e2e/dashboard.log 2>&1 &
+          echo $! > /tmp/sx-e2e/dashboard.pid
+          for i in $(seq 1 90); do
+            if nc -z 127.0.0.1 3000; then
+              echo "dashboard listening on 127.0.0.1:3000 after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "dashboard failed to open 127.0.0.1:3000 in 90s"
+          tail -n 200 /tmp/sx-e2e/dashboard.log || true
+          exit 1
+
+      - name: Run Playwright suite
+        working-directory: web/dashboard
+        env:
+          CI: "1"
+        run: npm run e2e -- --reporter=line,html
+
+      - name: Stop background services
+        if: always()
+        run: |
+          for name in dashboard sx-monolith; do
+            pidfile="/tmp/sx-e2e/${name}.pid"
+            if [ -f "$pidfile" ]; then
+              pid="$(cat "$pidfile")"
+              if kill -0 "$pid" 2>/dev/null; then
+                kill "$pid" || true
+                wait "$pid" 2>/dev/null || true
+              fi
+            fi
+          done
+
+      - name: Collect logs into artifact tree
+        if: always()
+        run: |
+          mkdir -p web/dashboard/playwright-report
+          cp /tmp/sx-e2e/sx-monolith.log \
+            web/dashboard/playwright-report/sx-monolith.log 2>/dev/null || true
+          cp /tmp/sx-e2e/dashboard.log \
+            web/dashboard/playwright-report/dashboard.log 2>/dev/null || true
+
+      - name: Upload Playwright report + logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            web/dashboard/playwright-report/
+            web/dashboard/test-results/
+          if-no-files-found: warn
+          retention-days: 14

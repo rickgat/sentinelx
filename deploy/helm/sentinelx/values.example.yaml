@@ -1,0 +1,361 @@
+# =============================================================================
+# SentinelX Helm chart — fully commented example values.
+#
+# Copy this file, strip the comments you don't need, then deploy with:
+#   helm upgrade --install sentinelx deploy/helm/sentinelx \
+#     -n sentinelx --create-namespace \
+#     -f my-values.yaml
+#
+# IMPORTANT: every value flagged "MUST override" is intentionally invalid in
+# values.yaml — the chart fails closed if you forget to override it.
+# =============================================================================
+
+# --- Naming -----------------------------------------------------------------
+# Override the chart's generated names. Leave blank for default behavior.
+nameOverride: ""
+fullnameOverride: ""
+
+# --- Container image --------------------------------------------------------
+image:
+  # Image repository. Build & push your own; the example below is illustrative.
+  repository: ghcr.io/sentinelx/sx-monolith
+  # Pin a specific tag for reproducible deploys. Avoid `latest`.
+  tag: "0.1.0"
+  # IfNotPresent (default) | Always | Never.
+  pullPolicy: IfNotPresent
+  # imagePullSecrets references (e.g. for private registries).
+  pullSecrets:
+    # - name: ghcr-pull-secret
+
+# --- Replica & rollout ------------------------------------------------------
+# Min 3 for HA across zones. Tune to your traffic envelope.
+replicaCount: 3
+
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
+
+# --- ServiceAccount ---------------------------------------------------------
+serviceAccount:
+  create: true
+  name: ""                    # auto-derived from release name
+  annotations: {}             # IRSA / Workload Identity annotations here
+  # Token automount is OFF by default. Only enable if the pod calls k8s API.
+  automountToken: false
+
+# --- Pod / container security context (least-privilege) ---------------------
+podSecurityContext:
+  runAsUser: 65532            # nonroot UID
+  runAsGroup: 65532
+  fsGroup: 65532
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65632
+  capabilities:
+    drop:
+      - ALL
+
+# --- Resources --------------------------------------------------------------
+# Defaults sized for ~200 RPS p95 on a 1-vCPU node. Adjust based on actual
+# load testing. Always set both requests and limits.
+resources:
+  requests:
+    cpu: "200m"
+    memory: "256Mi"
+  limits:
+    cpu: "1"
+    memory: "1Gi"
+
+# --- Health probes ----------------------------------------------------------
+probes:
+  liveness:
+    path: /healthz
+    port: http
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+  readiness:
+    path: /readyz
+    port: http
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 3
+  # Startup probe shields a slow boot from triggering liveness restart loops.
+  startup:
+    enabled: true
+    path: /healthz
+    port: http
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 30      # 30 * 5s = 2.5 min boot budget
+
+# --- Service ----------------------------------------------------------------
+service:
+  type: ClusterIP             # ClusterIP | NodePort | LoadBalancer
+  httpPort: 8080
+  metricsPort: 9090
+  annotations: {}
+
+# --- Ingress (off by default) -----------------------------------------------
+ingress:
+  enabled: false
+  className: nginx
+  annotations:
+    # MUST override for prod (TLS, auth, rate limiting).
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  hosts:
+    - host: sentinelx.example.invalid       # MUST override
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    # - secretName: sentinelx-tls
+    #   hosts:
+    #     - sentinelx.example.invalid
+
+# --- PodDisruptionBudget ----------------------------------------------------
+pdb:
+  enabled: true
+  minAvailable: 1
+  maxUnavailable: null
+
+# --- Scheduling: anti-affinity + zone spread for HA -------------------------
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          topologyKey: kubernetes.io/hostname
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: sentinelx
+
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: sentinelx
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: sentinelx
+
+nodeSelector: {}
+tolerations: []
+priorityClassName: ""        # e.g. "system-cluster-critical" for prod
+
+# --- Metrics & ServiceMonitor (Prometheus Operator CRD) ---------------------
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: false           # flip to true if Prometheus Operator is installed
+    interval: 30s
+    scrapeTimeout: 10s
+    namespace: ""            # default: same ns as release
+    additionalLabels:
+      release: kube-prometheus-stack
+    relabelings: []
+    metricRelabelings: []
+
+# --- NetworkPolicy (default-deny + explicit allow) --------------------------
+networkPolicy:
+  enabled: true
+  # Allow ingress traffic from the ingress-controller namespace.
+  allowFromIngressNamespace: true
+  ingressNamespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: ingress-nginx
+  egress:
+    postgres:
+      port: 5432
+      # CIDR or set of in-cluster pod selectors — use CIDR for managed DB.
+      cidrs:
+        - "10.0.100.10/32"      # MUST override
+    redis:
+      port: 6379
+      cidrs:
+        - "10.0.100.20/32"      # MUST override
+    otel:
+      port: 4317
+      cidrs:
+        - "10.0.100.30/32"      # MUST override (or namespace selector)
+    extraDns:
+      enabled: true             # cluster DNS UDP/TCP 53
+
+# --- Database migration Job -------------------------------------------------
+migrationJob:
+  enabled: true
+  image:
+    repository: ghcr.io/sentinelx/sx-monolith
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+  command:
+    - /usr/local/bin/sx-monolith
+    - migrate
+    - run
+  backoffLimit: 3
+  activeDeadlineSeconds: 600
+  ttlSecondsAfterFinished: 3600
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+# --- Application config -----------------------------------------------------
+# Rendered into a ConfigMap and mounted at /etc/sentinelx/config.yaml.
+# Tune to your environment.
+config:
+  server:
+    bind_addr: "0.0.0.0:8080"
+    shutdown_timeout: 30
+    request_timeout: 30
+    max_body_bytes: 1048576
+    rate_limit:
+      limit_per_minute: 600
+      burst: 60
+      enabled: true
+  database:
+    max_connections: 20
+    min_connections: 2
+    acquire_timeout: 10
+    idle_timeout: 300
+    statement_timeout_ms: 15000
+  redis:
+    pool_size: 10
+    command_timeout: 2
+  jwt:
+    issuer: "https://sentinelx.example.invalid"      # MUST override
+    audience: "sentinelx-api"
+    key_id: "kid-2026-05"
+    algorithm: "HS256"
+    access_ttl: 900
+    refresh_ttl: 604800
+    leeway_seconds: 30
+  telemetry:
+    service_name: "sx-monolith"
+    environment: "prod"
+    log_level: "info"
+    log_format: "json"
+    sample_ratio: 0.1
+    prometheus_bind: "0.0.0.0:9090"
+  risk:
+    weights:
+      w_severity: 0.25
+      w_exploit: 0.20
+      w_exposure: 0.15
+      w_criticality: 0.20
+      w_business_impact: 0.15
+      w_chain: 0.05
+    kev_boost_factor: 1.25
+    epss_threshold_act: 0.50
+  engagement:
+    max_concurrent: 16
+    default_intensity: "normal"
+    kill_switch_channel: "sentinelx.killswitch"
+    killswitch_watchdog_interval: 1
+    global_denylist:
+      - kind: "regex"
+        value: "^.*\\.gov$"
+        reason: "government domains require explicit authorization"
+      - kind: "regex"
+        value: "^.*\\.mil$"
+        reason: "military domains require explicit authorization"
+  iam:
+    password:
+      m_cost: 19456
+      t_cost: 2
+      p_cost: 1
+      output_len: 32
+      salt_len: 16
+    session_inactivity_timeout: 1800
+    mfa_required: true
+    lockout:
+      threshold: 5
+      window: 900
+      duration: 900
+  discovery:
+    dns_resolvers:
+      - "1.1.1.1:53"
+      - "9.9.9.9:53"
+    max_concurrent_probes: 64
+    per_target_rps_limit: 10
+    http_user_agent: "SentinelX/0.1 (+https://sentinelx.example.invalid)"
+    http_timeout: 10
+    port_scan_max_ports: 1024
+
+# --- Secrets ----------------------------------------------------------------
+# Prefer existingSecret + external-secrets/SealedSecrets/Vault Operator.
+secrets:
+  existingSecret: ""           # if set, chart will NOT create a Secret
+  create: true
+  databaseUrl: "postgres://sentinelx:CHANGE_ME@postgres:5432/sentinelx?sslmode=require"  # MUST override
+  redisUrl: "redis://:CHANGE_ME@redis:6379/0"                                            # MUST override
+  jwtSigningKey: "CHANGE_ME_AT_LEAST_32_BYTES_BASE64"                                    # MUST override
+  attemptPepper: "CHANGE_ME_AT_LEAST_16_BYTES_RANDOM"                                    # MUST override
+  bootstrapAdminPhc: "CHANGE_ME_ARGON2ID_PHC_STRING"                                     # MUST override
+
+# --- Telemetry endpoint -----------------------------------------------------
+telemetry:
+  # OpenTelemetry collector OTLP/gRPC endpoint.
+  otlpEndpoint: "http://otel-collector.observability.svc.cluster.local:4317"
+
+# --- Extras ----------------------------------------------------------------
+extraEnv:
+  # - name: RUST_LOG
+  #   value: info,sqlx=warn
+
+extraVolumes:
+  # - name: ca-bundle
+  #   configMap:
+  #     name: corporate-ca-bundle
+
+extraVolumeMounts:
+  # - name: ca-bundle
+  #   mountPath: /etc/ssl/certs/extra
+  #   readOnly: true
+
+scratchTmpfs:
+  enabled: true
+  sizeLimit: "64Mi"
+
+# --- HIGH-009: Kubernetes admission webhook (blocking mode) ---------------
+#
+# Registers SentinelX as a `ValidatingWebhookConfiguration` for Pods +
+# workload kinds that embed a PodSpec. cert-manager injects the CA
+# bundle into the webhook config via the
+# `cert-manager.io/inject-ca-from` annotation; see
+# `templates/admission-webhook.yaml`. Prereqs: cert-manager installed +
+# an Issuer or ClusterIssuer named in `admissionWebhook.certManager`.
+admissionWebhook:
+  enabled: false                       # opt in once cert-manager + Issuer are ready
+  timeoutSeconds: 5                    # apiserver-side timeout (max 30s)
+  failurePolicy: Fail                  # Fail | Ignore — Fail enforces posture; Ignore degrades gracefully
+  skipNamespaces:
+    - kube-system
+    - kube-public
+    - kube-node-lease
+    - cert-manager
+  certManager:
+    issuerRef:
+      name: selfsigned-issuer          # swap to cluster CA ClusterIssuer in prod
+      kind: Issuer                     # Issuer | ClusterIssuer
+      group: cert-manager.io

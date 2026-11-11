@@ -1,0 +1,34 @@
+# Stable Service for the sx-monolith Rollout.
+# Argo Rollouts patches THIS Service's selector during a rollout to
+# point at the stable ReplicaSet so existing traffic isn't disturbed.
+# The Service itself is plain ClusterIP — Linkerd handles mTLS + L7
+# routing transparently for callers inside the mesh.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sx-monolith-stable
+  namespace: sentinelx
+  labels:
+    app.kubernetes.io/name: sx-monolith
+    app.kubernetes.io/part-of: sentinelx
+    app.kubernetes.io/component: rollout-stable
+  annotations:
+    # Tell Linkerd this Service participates in canary traffic splitting.
+    linkerd.io/inject: enabled
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: sx-monolith
+    # Argo Rollouts adds rollouts-pod-template-hash: <stable-hash> here
+    # at runtime — do not hard-code it.
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+      appProtocol: http
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP

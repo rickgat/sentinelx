@@ -1,0 +1,27 @@
+[package]
+name = "sx-chaos"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "SentinelX chaos engineering hooks: opt-in fault injection (latency, error-rate, dependency failures) for HTTP and repository layers (P2-012)."
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+rand = { workspace = true }
+metrics = { workspace = true }
+axum = { workspace = true }
+time = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "test-util"] }
+tower = { workspace = true }

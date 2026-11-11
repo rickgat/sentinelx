@@ -1,0 +1,124 @@
+# SentinelX — Linkerd Server + (Server)AuthorizationPolicy for sx-monolith
+# administrative endpoints.
+#
+# Goal: restrict who can call /v1/admin/* and /v1/safety/kill-switch on the
+# monolith. Callers MUST present a Linkerd-issued workload identity (mTLS)
+# whose SPIFFE ID matches one of the listed ServiceAccounts. Unauthenticated
+# traffic is rejected at the proxy before it ever reaches the app.
+#
+# Layout:
+#   1. Server `sx-monolith-admin`    — declares the admin inbound port,
+#                                       HTTP/2, accessPolicy=deny.
+#   2. HTTPRoute `sx-monolith-admin` — matches /v1/admin/* + /v1/safety/*.
+#   3. MeshTLSAuthentication        — pins the SPIFFE identities allowed in.
+#   4. AuthorizationPolicy          — binds the HTTPRoute to the identities.
+#
+# Mapped controls:
+#   NIST SP 800-53 AC-3   (Access enforcement)
+#   NIST SP 800-53 AC-6   (Least privilege)
+#   NIST SP 800-53 IA-3   (Device identification + authentication)
+#   ISO/IEC 27001 A.5.15  (Access control)
+#   ISO/IEC 27001 A.5.16  (Identity management)
+#   SOC2 CC6.1            (Logical access controls)
+---
+apiVersion: policy.linkerd.io/v1beta1
+kind: Server
+metadata:
+  name: sx-monolith-admin
+  namespace: sentinelx
+  labels:
+    app.kubernetes.io/name: sx-monolith
+    app.kubernetes.io/part-of: sentinelx
+    app.kubernetes.io/component: admin-server
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: sx-monolith
+  port: http
+  proxyProtocol: HTTP/2
+  # Deny by default — only the AuthorizationPolicy below opens the routes.
+  accessPolicy: deny
+---
+# HTTPRoute attaches the admin endpoints to the admin Server.
+apiVersion: policy.linkerd.io/v1beta3
+kind: HTTPRoute
+metadata:
+  name: sx-monolith-admin
+  namespace: sentinelx
+  labels:
+    app.kubernetes.io/name: sx-monolith
+    app.kubernetes.io/part-of: sentinelx
+spec:
+  parentRefs:
+    - name: sx-monolith-admin
+      kind: Server
+      group: policy.linkerd.io
+  rules:
+    - matches:
+        # /v1/admin/users[...]
+        - path:
+            type: PathPrefix
+            value: /v1/admin/
+        # /v1/safety/kill-switch  + /v1/safety/abort-engagement/<id>
+        - path:
+            type: PathPrefix
+            value: /v1/safety/
+---
+# Workload identities (SPIFFE) that are allowed to call admin endpoints.
+# Identities resolve to `<ServiceAccount>.<Namespace>.serviceaccount.identity.linkerd.cluster.local`.
+apiVersion: policy.linkerd.io/v1alpha1
+kind: MeshTLSAuthentication
+metadata:
+  name: sx-monolith-admin-callers
+  namespace: sentinelx
+  labels:
+    app.kubernetes.io/part-of: sentinelx
+spec:
+  identities:
+    # Cluster-admin operator break-glass workload.
+    - "sentinelx-admin.sentinelx.serviceaccount.identity.linkerd.cluster.local"
+    # The operations console (next.js) running in the dashboard namespace.
+    - "sentinelx-dashboard.sentinelx-dashboard.serviceaccount.identity.linkerd.cluster.local"
+    # The autonomy controller (in-cluster) using the safety kill-switch.
+    - "sx-autonomy.sentinelx.serviceaccount.identity.linkerd.cluster.local"
+---
+# AuthorizationPolicy: binds the admin HTTPRoute to the mTLS identities above.
+# Anything that does not present one of those SPIFFE IDs gets a 401 at the
+# proxy. The application never sees the request.
+apiVersion: policy.linkerd.io/v1alpha1
+kind: AuthorizationPolicy
+metadata:
+  name: sx-monolith-admin-allow
+  namespace: sentinelx
+  labels:
+    app.kubernetes.io/part-of: sentinelx
+spec:
+  targetRef:
+    group: policy.linkerd.io
+    kind: HTTPRoute
+    name: sx-monolith-admin
+  requiredAuthenticationRefs:
+    - kind: MeshTLSAuthentication
+      name: sx-monolith-admin-callers
+      group: policy.linkerd.io
+---
+# ServerAuthorization (legacy v1alpha1) kept for older Linkerd installations
+# that have not yet migrated to AuthorizationPolicy + HTTPRoute. SentinelX
+# ships both so cluster operators can roll forward at their own pace.
+apiVersion: policy.linkerd.io/v1beta1
+kind: ServerAuthorization
+metadata:
+  name: sx-monolith-admin
+  namespace: sentinelx
+  labels:
+    app.kubernetes.io/part-of: sentinelx
+spec:
+  server:
+    name: sx-monolith-admin
+  client:
+    # Only meshed clients allowed — kubelet probes hit a different Server.
+    meshTLS:
+      identities:
+        - "sentinelx-admin.sentinelx.serviceaccount.identity.linkerd.cluster.local"
+        - "sentinelx-dashboard.sentinelx-dashboard.serviceaccount.identity.linkerd.cluster.local"
+        - "sx-autonomy.sentinelx.serviceaccount.identity.linkerd.cluster.local"

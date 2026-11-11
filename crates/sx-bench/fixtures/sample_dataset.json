@@ -1,0 +1,20 @@
+{
+  "name": "sentinelx-sample-groundtruth-v1",
+  "cases": [
+    {
+      "id": "web-1",
+      "target": "https://app.example (TLS + security-header posture)",
+      "expected": [
+        { "asset": "app.example", "check_id": "HDR.HSTS.MISSING", "severity": "medium" },
+        { "asset": "app.example", "check_id": "TLS.WEAK_PROTOCOL", "severity": "high" }
+      ]
+    },
+    {
+      "id": "net-1",
+      "target": "10.0.0.5 (exposed data-store ports)",
+      "expected": [
+        { "asset": "10.0.0.5", "check_id": "net.risky_port.redis", "severity": "high" }
+      ]
+    }
+  ]
+}

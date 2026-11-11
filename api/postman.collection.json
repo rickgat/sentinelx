@@ -1,0 +1,523 @@
+{
+  "info": {
+    "name": "SentinelX API",
+    "description": "Postman collection mirroring the SentinelX OpenAPI spec at api/openapi.yaml. The Login request captures access_token into the {{access_token}} variable; every other request uses bearer auth via that variable.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "8b4b6f1a-2b3c-4f1e-9a25-7f3e5a93c100"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "tenant_id",
+      "value": "11111111-1111-1111-1111-111111111111",
+      "type": "string"
+    },
+    {
+      "key": "engagement_id",
+      "value": "22222222-2222-2222-2222-222222222222",
+      "type": "string"
+    },
+    {
+      "key": "asset_id",
+      "value": "33333333-3333-3333-3333-333333333333",
+      "type": "string"
+    },
+    {
+      "key": "finding_id",
+      "value": "44444444-4444-4444-4444-444444444444",
+      "type": "string"
+    },
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refresh_token",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Liveness",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/healthz", "host": ["{{base_url}}"], "path": ["healthz"] }
+          }
+        },
+        {
+          "name": "Readiness",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/readyz", "host": ["{{base_url}}"], "path": ["readyz"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body && body.data) {",
+                  "        pm.collectionVariables.set('access_token', body.data.access_token);",
+                  "        pm.collectionVariables.set('refresh_token', body.data.refresh_token);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "content-type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tenant_id\": \"{{tenant_id}}\",\n  \"email\": \"admin@example.com\",\n  \"password\": \"hunter2\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "Refresh",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "content-type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/auth/refresh",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "auth", "refresh"]
+            }
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "content-type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/auth/logout",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "auth", "logout"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tenants",
+      "item": [
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/v1/tenants/me",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "tenants", "me"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Engagements",
+      "item": [
+        {
+          "name": "List engagements",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/v1/engagements?offset=0&limit=50",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "engagements"],
+              "query": [
+                { "key": "offset", "value": "0" },
+                { "key": "limit", "value": "50" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create engagement",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "content-type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Quarterly red-team\",\n  \"description\": \"Q2 external red-team engagement\",\n  \"scopes\": [\"10.0.0.0/24\", \"example.com\"]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/engagements",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "engagements"]
+            }
+          }
+        },
+        {
+          "name": "Get engagement",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/v1/engagements/{{engagement_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "engagements", "{{engagement_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Update engagement",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "content-type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"active\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/engagements/{{engagement_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "engagements", "{{engagement_id}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Assets",
+      "item": [
+        {
+          "name": "List assets",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/v1/assets?offset=0&limit=50",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "assets"],
+              "query": [
+                { "key": "offset", "value": "0" },
+                { "key": "limit", "value": "50" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get asset",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/v1/assets/{{asset_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "assets", "{{asset_id}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Findings",
+      "item": [
+        {
+          "name": "List findings",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/v1/findings?offset=0&limit=50",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "findings"],
+              "query": [
+                { "key": "offset", "value": "0" },
+                { "key": "limit", "value": "50" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get finding",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/v1/findings/{{finding_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "findings", "{{finding_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Update finding status",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "content-type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"triaged\",\n  \"comment\": \"Verified by analyst\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/findings/{{finding_id}}/status",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "findings", "{{finding_id}}", "status"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Risk",
+      "item": [
+        {
+          "name": "Calculate risk",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "content-type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"engagement_id\": \"{{engagement_id}}\",\n  \"asset_id\": \"{{asset_id}}\",\n  \"cve_id\": \"CVE-2024-12345\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/risk/calculate",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "risk", "calculate"]
+            }
+          }
+        },
+        {
+          "name": "Calculate engagement risk",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "content-type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"include_unscored\": false,\n  \"top_n\": 5\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/risk/engagement/{{engagement_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "risk", "engagement", "{{engagement_id}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Discovery",
+      "item": [
+        {
+          "name": "Run discovery",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "content-type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"engagement_id\": \"{{engagement_id}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/discovery/runs",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "discovery", "runs"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Safety",
+      "item": [
+        {
+          "name": "Trip kill switch",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "content-type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"operator-triggered halt\",\n  \"scope\": \"engagement\",\n  \"engagement_id\": \"{{engagement_id}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/safety/kill-switch",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "safety", "kill-switch"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "BAS",
+      "item": [
+        {
+          "name": "Run BAS simulation",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "content-type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"technique_id\": \"T1003\",\n  \"target\": \"{{asset_id}}\",\n  \"mode\": \"theoretical\",\n  \"dry_run\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/bas/run",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "bas", "run"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Graph",
+      "item": [
+        {
+          "name": "Attack paths",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "content-type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tenant_id\": \"{{tenant_id}}\",\n  \"max_depth\": 5,\n  \"max_paths\": 25\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/graph/attack-paths",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "graph", "attack-paths"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reports",
+      "item": [
+        {
+          "name": "Render report",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "content-type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tenant_id\": \"{{tenant_id}}\",\n  \"engagement_id\": \"{{engagement_id}}\",\n  \"format\": \"sarif\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/reports/render",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "reports", "render"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Remediation",
+      "item": [
+        {
+          "name": "Vendor advisories",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "content-type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cve_id\": \"CVE-2024-12345\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/remediation/advisories",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "remediation", "advisories"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Compliance",
+      "item": [
+        {
+          "name": "List framework",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/v1/compliance/frameworks/nist_800_53",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "compliance", "frameworks", "nist_800_53"]
+            }
+          }
+        },
+        {
+          "name": "Map finding",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "content-type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"finding_id\": \"{{finding_id}}\",\n  \"category\": \"logging\",\n  \"severity\": \"high\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/compliance/map",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "compliance", "map"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ML",
+      "item": [
+        {
+          "name": "Predict triage",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "content-type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model_id\": \"triage-v1\",\n  \"row\": {\n    \"severity\": \"high\",\n    \"cve_id\": \"CVE-2024-12345\",\n    \"asset_kind\": \"host\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/ml/predict/triage",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "ml", "predict", "triage"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

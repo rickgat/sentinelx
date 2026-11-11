@@ -1,0 +1,91 @@
+# ApplicationSet fans the SentinelX monolith out across all known clusters.
+#
+# Generator strategy:
+#   matrix:
+#     - clusters: { selector: { matchLabels: { managed-by: sentinelx } } }
+#     - list:      [ { chart: monolith, path: deploy/helm/sentinelx } ]
+#
+# Each managed cluster Secret in `argocd` namespace MUST carry these labels:
+#   env: dev | staging | prod
+#   managed-by: sentinelx
+#
+# Mapped controls:
+#   NIST SP 800-53 CM-3 (Configuration Change Control)
+#   ISO/IEC 27001 A.8.32 (Change management)
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: sentinelx-monolith
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions:
+    - missingkey=error
+  generators:
+    - matrix:
+        generators:
+          - clusters:
+              selector:
+                matchLabels:
+                  managed-by: sentinelx
+              # `values` block surfaces cluster labels into the template.
+              values:
+                env: '{{ index .metadata.labels "env" }}'
+                clusterShortName: '{{ index .metadata.labels "short-name" }}'
+          - list:
+              elements:
+                - chart: monolith
+                  path: deploy/helm/sentinelx
+                  syncWave: "0"
+  template:
+    metadata:
+      name: 'sentinelx-{{ .chart }}-{{ .values.env }}'
+      labels:
+        app.kubernetes.io/name: sentinelx
+        app.kubernetes.io/part-of: sentinelx
+        sentinelx.io/env: '{{ .values.env }}'
+      annotations:
+        argocd.argoproj.io/sync-wave: '{{ .syncWave }}'
+        notifications.argoproj.io/subscribe.on-deployed.slack: sentinelx-deploys
+        notifications.argoproj.io/subscribe.on-sync-failed.slack: sentinelx-deploys
+    spec:
+      project: sentinelx
+      source:
+        repoURL: https://github.com/sentinelx/sentinelx-infra
+        targetRevision: main
+        path: '{{ .path }}'
+        helm:
+          releaseName: 'sentinelx-{{ .chart }}'
+          valueFiles:
+            - 'values.yaml'
+            - 'values-{{ .values.env }}.yaml'
+          # Image tag is rendered by the release.yml workflow into
+          # values-<env>.yaml — never hardcoded here.
+      destination:
+        name: '{{ .name }}'
+        namespace: sentinelx
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+          allowEmpty: false
+        syncOptions:
+          - CreateNamespace=true
+          - PrunePropagationPolicy=foreground
+          - PruneLast=true
+          - ApplyOutOfSyncOnly=true
+          - ServerSideApply=true
+          - RespectIgnoreDifferences=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 5m
+      revisionHistoryLimit: 10
+      ignoreDifferences:
+        # The Argo Rollouts controller mutates replica count during canary.
+        - group: argoproj.io
+          kind: Rollout
+          jsonPointers:
+            - /spec/replicas

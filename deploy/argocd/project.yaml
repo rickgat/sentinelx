@@ -1,0 +1,82 @@
+# AppProject for SentinelX.
+# Maps to:
+#   NIST SP 800-53 AC-3 (Access Enforcement)
+#   ISO/IEC 27001 A.5.15 (Access Control)
+#   SOC2 CC6.1 (Logical access)
+#
+# Restricts which git repos can act as sources, which clusters can be
+# destinations, and explicitly denies dangerous cluster-scoped writes.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: sentinelx
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: SentinelX platform GitOps project
+  sourceRepos:
+    - https://github.com/sentinelx/sentinelx-infra
+    - https://github.com/sentinelx/security-check
+  destinations:
+    - namespace: sentinelx
+      server: https://kubernetes.default.svc
+      name: in-cluster
+    - namespace: sentinelx
+      server: "*"
+      name: "*"
+    - namespace: argo-rollouts
+      server: "*"
+      name: "*"
+    - namespace: cert-manager
+      server: "*"
+      name: "*"
+  # Cluster-scoped resources: small allowlist. Anything else (e.g. raw
+  # ClusterRoleBinding outside of a chart) requires a project amendment.
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+    - group: policy
+      kind: PodSecurityPolicy
+  # Hard deny: nodes, PVs, validating webhooks are forbidden from this project.
+  clusterResourceBlacklist:
+    - group: ""
+      kind: Node
+    - group: ""
+      kind: PersistentVolume
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  namespaceResourceBlacklist:
+    - group: ""
+      kind: ResourceQuota
+  roles:
+    - name: read-only
+      description: Read-only role for ops engineers
+      policies:
+        - p, proj:sentinelx:read-only, applications, get, sentinelx/*, allow
+        - p, proj:sentinelx:read-only, logs, get, sentinelx/*, allow
+      groups:
+        - sentinelx:ops-readonly
+    - name: release-manager
+      description: Can sync + rollback prod
+      policies:
+        - p, proj:sentinelx:release-manager, applications, sync, sentinelx/*, allow
+        - p, proj:sentinelx:release-manager, applications, action/*, sentinelx/*, allow
+      groups:
+        - sentinelx:release-managers
+  orphanedResources:
+    warn: true
+  signatureKeys:
+    # Commits to main MUST be signed by these GPG fingerprints to be syncable.
+    - keyID: 4AEE18F83AFDEB23

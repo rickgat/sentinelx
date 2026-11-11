@@ -1,0 +1,17 @@
+[package]
+name = "sx-bench"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "SentinelX detection-accuracy benchmark harness: scores actual findings against a labelled ground-truth dataset (precision / recall / F1, with the exact false-positive and false-negative lists)."
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

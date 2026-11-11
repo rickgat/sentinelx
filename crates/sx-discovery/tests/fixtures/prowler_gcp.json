@@ -1,0 +1,58 @@
+[
+    {
+        "Status": "FAIL",
+        "Provider": "gcp",
+        "CheckID": "iam_sa_user_managed_keys",
+        "Severity": "high",
+        "ProjectId": "sx-golden-gcp",
+        "Region": "us-central1",
+        "ResourceUID": "//iam.googleapis.com/projects/sx-golden-gcp/serviceAccounts/sa@sx-golden-gcp.iam.gserviceaccount.com",
+        "ResourceName": "sa",
+        "ResourceType": "ServiceAccount",
+        "StatusExtended": "Service account 'sa' has user-managed keys",
+        "Description": "Service accounts should not have user-managed keys",
+        "Remediation": "Migrate to workload identity",
+        "Compliance": {
+            "CIS-2.0": ["1.4", "1.5"]
+        }
+    },
+    {
+        "Status": "FAIL",
+        "Provider": "gcp",
+        "CheckID": "compute_firewall_rule_open_to_internet",
+        "Severity": "critical",
+        "ProjectId": "sx-golden-gcp",
+        "Region": "global",
+        "ResourceUID": "//compute.googleapis.com/projects/sx-golden-gcp/global/firewalls/allow-all-ingress",
+        "ResourceName": "allow-all-ingress",
+        "ResourceType": "Firewall",
+        "Description": "Firewall rule allows 0.0.0.0/0 ingress on TCP/22",
+        "Compliance": {
+            "CIS-2.0": ["3.6"]
+        }
+    },
+    {
+        "Status": "PASS",
+        "Provider": "gcp",
+        "CheckID": "kms_key_rotation_enabled",
+        "Severity": "medium",
+        "ProjectId": "sx-golden-gcp",
+        "ResourceUID": "//cloudkms.googleapis.com/projects/sx-golden-gcp/locations/global/keyRings/kr/cryptoKeys/ck"
+    },
+    {
+        "Status": "FAIL",
+        "Provider": "gcp",
+        "CheckID": "totally_unknown_check",
+        "Severity": "low",
+        "ProjectId": "sx-golden-gcp",
+        "ResourceUID": "//cloudresourcemanager.googleapis.com/projects/sx-golden-gcp"
+    },
+    {
+        "Status": "FAIL",
+        "Provider": "aws",
+        "CheckID": "s3_bucket_public",
+        "Severity": "high",
+        "AccountId": "123456789012",
+        "ResourceUID": "arn:aws:s3:::sx-golden-aws"
+    }
+]

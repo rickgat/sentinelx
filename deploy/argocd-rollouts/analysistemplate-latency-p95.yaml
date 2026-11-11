@@ -1,0 +1,35 @@
+# p95 latency analysis template.
+# Pass condition: p95 over the last 2m must be <= 0.5 s (500 ms).
+#
+# Mapped controls:
+#   NIST SP 800-53 SI-4 (System monitoring)
+#   ISO/IEC 27001 A.8.16 (Monitoring activities)
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: latency-p95
+  namespace: sentinelx
+spec:
+  args:
+    - name: service-name
+    - name: namespace
+      value: sentinelx
+  metrics:
+    - name: latency-p95
+      interval: 30s
+      count: 4
+      successCondition: result[0] <= 0.5
+      failureLimit: 1
+      provider:
+        prometheus:
+          address: http://prometheus.monitoring.svc.cluster.local:9090
+          query: |
+            histogram_quantile(
+              0.95,
+              sum by (le) (
+                rate(sx_http_request_duration_seconds_bucket{
+                  namespace="{{args.namespace}}",
+                  service="{{args.service-name}}"
+                }[2m])
+              )
+            )

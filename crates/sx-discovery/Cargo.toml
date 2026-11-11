@@ -1,0 +1,65 @@
+[package]
+name = "sx-discovery"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "SentinelX asset discovery: scanner trait, registry, non-intrusive sample scanners."
+
+[lints]
+workspace = true
+
+[dependencies]
+# `sx-core` is depended on (TOP5-#3 Phase 1) for the canonical Finding
+# enrichment value objects (CvssV31, CweId, MitreAttackTechnique,
+# ComplianceTags). The local `contracts` module still mirrors the
+# scanner-trait types because swapping those is a separate refactor
+# tracked as a Phase 2 follow-up.
+sx-core = { workspace = true }
+# NOTE: `sx-engagement` is not depended on yet — at the time this crate
+# compiled standalone, the sibling crate was work-in-progress with
+# workspace-lint failures. A local `contracts` module mirrors the agreed
+# scanner-trait types so wiring is a one-import swap once it is ready.
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }
+ipnet = { workspace = true }
+url = { workspace = true }
+secrecy = { workspace = true }
+hickory-resolver = { workspace = true }
+reqwest = { workspace = true }
+futures = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+kube = { version = "4.0", default-features = false, features = ["client", "rustls-tls", "config"] }
+k8s-openapi = { version = "0.28", features = ["v1_32"] }
+# gRPC reflection probe. `tonic-reflection` 0.14 does not expose a `client`
+# feature — its server-side helpers are gated behind the default `server`
+# feature, while the generated `server_reflection_client::ServerReflectionClient`
+# is always present once `codegen` is enabled. We turn `server` off to avoid
+# pulling axum / tokio-stream into a client-only crate. The LOW-001-FU6-TONIC-OTEL
+# cascade (2026-07-04) split the Prost codec into the sibling `tonic-prost`
+# crate (was the `tonic/prost` feature at 0.12; now pulled transitively by
+# `tonic-reflection`, so we do not depend on it directly) and retired the
+# umbrella `tls` feature in favour of concrete provider flags — we use
+# `tls-ring` (rustls + ring) plus `tls-webpki-roots` so HTTPS / grpcs
+# targets get a usable trust anchor set on a webpki root store. `prost` was
+# itself bumped 0.13 -> 0.14 in the same cascade because tonic 0.14 requires
+# it.
+tonic = { version = "0.14", default-features = false, features = ["transport", "codegen", "tls-ring", "tls-webpki-roots"] }
+tonic-reflection = { version = "0.14", default-features = false }
+
+[dev-dependencies]
+wiremock = { workspace = true }
+# rustls 0.23 panics when constructing a `ClientTlsConfig` without a
+# process-level `CryptoProvider`. None of our transitive rustls features
+# pre-install one, so the tests that exercise `ClientTlsConfig::new()`
+# install the ring provider via `once_cell` (see test-module helpers).
+rustls = { version = "0.23", default-features = false, features = ["ring"] }

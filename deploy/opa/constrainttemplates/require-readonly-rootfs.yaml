@@ -1,0 +1,43 @@
+# Requires every container to mount a read-only root filesystem.
+# Writable paths must be backed by emptyDir / PVC volumes.
+#
+# Maps to NIST SI-7, ISO/IEC 27001 A.8.7, SOC2 CC6.8.
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: sxrequirereadonlyrootfs
+  annotations:
+    description: Require readOnlyRootFilesystem=true on all containers.
+spec:
+  crd:
+    spec:
+      names:
+        kind: SxRequireReadOnlyRootFS
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package sxrequirereadonlyrootfs
+
+        import rego.v1
+
+        pod_spec := input.review.object.spec.template.spec if {
+          input.review.object.spec.template.spec
+        }
+
+        violation contains {"msg": msg} if {
+          some container in pod_spec.containers
+          not container.securityContext.readOnlyRootFilesystem == true
+          msg := sprintf(
+            "container %q must set securityContext.readOnlyRootFilesystem=true",
+            [container.name],
+          )
+        }
+
+        violation contains {"msg": msg} if {
+          some container in pod_spec.initContainers
+          not container.securityContext.readOnlyRootFilesystem == true
+          msg := sprintf(
+            "initContainer %q must set securityContext.readOnlyRootFilesystem=true",
+            [container.name],
+          )
+        }

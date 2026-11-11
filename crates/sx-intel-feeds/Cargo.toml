@@ -1,0 +1,42 @@
+[package]
+name = "sx-intel-feeds"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "SentinelX STIX 2.1 / TAXII 2.1 threat intel feed client. Parses STIX bundles into normalized Indicators and streams them from TAXII collections."
+
+[lints]
+workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+reqwest = { workspace = true }
+secrecy = { workspace = true }
+uuid = { workspace = true }
+url = { workspace = true }
+time = { workspace = true }
+regex = { workspace = true }
+tokio = { workspace = true }
+csv = "1"
+flate2 = "1"
+base64 = { workspace = true }
+sx-intel-ioc = { workspace = true }
+sx-secrets = { workspace = true }
+
+[dev-dependencies]
+# `test-util` enables `tokio::time::pause` / `start_paused` used by the
+# rate-limiter unit tests (no wall-clock sleeps).
+tokio = { workspace = true, features = ["test-util"] }
+wiremock = { workspace = true }
+serde_json = { workspace = true }
+# Self-signed cert + keypair generation for the HIGH-008 mTLS tests
+# (mirrors the version used by sx-mtls / sx-api).
+rcgen = { version = "0.13", default-features = false, features = ["crypto", "ring", "pem"] }

@@ -1,0 +1,129 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  RUSTFLAGS: -D warnings
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  format:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.92.0
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.92.0
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: ci-only-not-a-real-secret
+          POSTGRES_DB: sentinelx_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.92.0
+      - uses: Swatinem/rust-cache@v2
+      # TOP5-#1-PHASE-1A: install libxmlsec1 system packages so the
+      # `sx-xmlsec` crate's `xmlsec1` feature (enabled by
+      # `--all-features`) can link. clippy / fmt / deny jobs do NOT
+      # need this because `sx-xmlsec` defaults to feature-off and the
+      # FFI module is `#[cfg(feature = "xmlsec1")]`-gated.
+      #
+      # PHASE-1B: also install the `xmlsec1` CLI and `openssl` — the
+      # `verifier_core` integration tests generate fresh signed fixtures at
+      # test-setup time using these binaries, rather than checking opaque
+      # blobs into the repo. See `crates/sx-xmlsec/tests/verifier_core.rs`.
+      #
+      # Package names differ across Ubuntu releases: the 22.04 -> 24.04
+      # (ubuntu-latest) migration renamed the OpenSSL crypto-engine
+      # (libxmlsec1-openssl -> libxmlsec1-openssl1) and the CLI
+      # (libxmlsec1-utils -> xmlsec1). Install the stable-named packages,
+      # then pick whichever variant names this runner actually provides, so
+      # the step is robust to the runner image moving between releases.
+      - name: Install libxmlsec1
+        run: |
+          set -euxo pipefail
+          # Retry update to absorb transient apt mirror failures (a common
+          # cause of exit 100 on hosted runners).
+          for i in 1 2 3; do
+            sudo apt-get update && break || { echo "apt-get update retry $i"; sleep 5; }
+          done
+          sudo apt-get install -y --no-install-recommends \
+            libxmlsec1-dev libxml2-dev openssl pkg-config
+          pick() {
+            for p in "$@"; do
+              if sudo apt-get install -y --no-install-recommends --dry-run "$p" >/dev/null 2>&1; then
+                echo "$p"; return 0
+              fi
+            done
+            echo "::error::none of these packages are installable: $*" >&2
+            return 1
+          }
+          engine_pkg="$(pick libxmlsec1-openssl1 libxmlsec1t64-openssl libxmlsec1-openssl)"
+          cli_pkg="$(pick xmlsec1 libxmlsec1-utils)"
+          sudo apt-get install -y --no-install-recommends "$engine_pkg" "$cli_pkg"
+          # Fail loudly here (not deep inside a test) if the binaries the
+          # verifier_core fixtures depend on did not land.
+          command -v xmlsec1
+          command -v openssl
+      - run: cargo test --workspace --all-features --no-fail-fast
+
+  deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          arguments: --all-features
+
+  # NOTE: `cargo audit` lives in its own workflow now — see
+  # `.github/workflows/audit.yml` (LOW-001). The ignore policy is enforced
+  # via `.cargo/audit.toml` and the supply-chain runbook.

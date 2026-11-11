@@ -1,0 +1,23 @@
+# Applies SxRequireNonRoot to every Deployment + Rollout in `sentinelx`.
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: SxRequireNonRoot
+metadata:
+  name: sentinelx-non-root
+spec:
+  enforcementAction: deny
+  match:
+    namespaces:
+      - sentinelx
+    kinds:
+      - apiGroups:
+          - apps
+        kinds:
+          - Deployment
+          - StatefulSet
+          - DaemonSet
+      - apiGroups:
+          - argoproj.io
+        kinds:
+          - Rollout
+  parameters:
+    exemptImages: []

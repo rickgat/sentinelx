@@ -1,0 +1,35 @@
+[package]
+name = "sx-engagement"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "SentinelX engagement lifecycle, scope validation, kill switch."
+
+[lints]
+workspace = true
+
+[dependencies]
+sx-config = { workspace = true }
+sx-core = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+time = { workspace = true }
+ipnet = { workspace = true }
+url = { workspace = true }
+regex = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+# Live-Redis integration tests (gated by `#[ignore]`).
+redis = { workspace = true }
+serde_json = { workspace = true }
+proptest = { workspace = true }
+ipnet = { workspace = true }
+url = { workspace = true }

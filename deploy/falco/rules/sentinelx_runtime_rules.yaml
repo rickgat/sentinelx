@@ -1,0 +1,153 @@
+# SentinelX runtime detection rules for Falco.
+# All rules carry the `sentinelx` tag for easy filtering downstream.
+#
+# Mapped controls:
+#   NIST SP 800-53 SI-4 (System monitoring)
+#   ISO/IEC 27001 A.8.16 (Monitoring activities)
+#   SOC2 CC7.2 (System monitoring)
+
+# --- Macros + lists --------------------------------------------------------
+
+- list: sentinelx_monolith_images
+  items:
+    - sentinelx/
+    - ghcr.io/sentinelx/
+
+- list: sentinelx_egress_allowlist
+  # Replace with real CIDRs before promoting to prod. See deploy/falco/README.md.
+  items:
+    - "10.40.0.0/24"     # postgres
+    - "10.40.1.0/24"     # redis
+    - "10.40.2.0/24"     # otel-collector
+    - "23.185.0.0/21"    # NVD (services.nvd.nist.gov)
+    - "185.85.16.0/22"   # FIRST.org EPSS
+    - "13.32.0.0/15"     # CISA KEV / CDN
+
+- list: sentinelx_sensitive_paths
+  items:
+    - /etc/
+    - /root/
+    - /var/lib/secrets/
+
+- list: sentinelx_shells
+  items:
+    - bash
+    - sh
+    - zsh
+    - ash
+    - dash
+    - ksh
+
+- macro: in_monolith_container
+  condition: >
+    container.image.repository startswith "sentinelx/" or
+    container.image.repository startswith "ghcr.io/sentinelx/"
+
+# --- Rule 1: shell spawned in sx-monolith ----------------------------------
+
+- rule: SentinelX Unexpected Shell In Monolith Pod
+  desc: >
+    A shell process (bash/sh/zsh/...) was spawned inside an sx-monolith
+    container. The monolith image is a distroless binary; a shell here
+    indicates an attacker with code-exec or a misconfigured debug build.
+  condition: >
+    spawned_process and
+    in_monolith_container and
+    proc.name in (sentinelx_shells)
+  output: >
+    Unexpected shell in sentinelx monolith pod
+    (user=%user.name user_loginuid=%user.loginuid command=%proc.cmdline
+     image=%container.image.repository:%container.image.tag
+     k8s_ns=%k8s.ns.name k8s_pod=%k8s.pod.name)
+  priority: CRITICAL
+  tags:
+    - sentinelx
+    - container
+    - process
+    - mitre_execution
+    - mitre_t1059
+
+# --- Rule 2: outbound connection to non-allowlisted CIDR -------------------
+
+- rule: SentinelX Egress To Non-Allowlisted Destination
+  desc: >
+    The monolith dialed an external IP that is not on the allowlist
+    (postgres, redis, otel-collector, NVD, FIRST.org, CISA). This is the
+    primary detection for command-and-control / data exfil.
+  condition: >
+    outbound and
+    in_monolith_container and
+    not fd.sip in (sentinelx_egress_allowlist) and
+    not fd.sip = "0.0.0.0" and
+    not fd.sip startswith "127."
+  output: >
+    Monolith egressed to non-allowlisted destination
+    (dest_ip=%fd.sip dest_port=%fd.sport proto=%fd.l4proto
+     image=%container.image.repository
+     k8s_ns=%k8s.ns.name k8s_pod=%k8s.pod.name)
+  priority: WARNING
+  tags:
+    - sentinelx
+    - network
+    - egress
+    - mitre_command_and_control
+    - mitre_t1071
+
+# --- Rule 3: write to sensitive path ---------------------------------------
+
+- rule: SentinelX Write To Sensitive Path
+  desc: >
+    A process inside the monolith wrote to /etc/, /root/, or /var/lib/secrets/.
+    With readOnlyRootFilesystem=true this should be impossible; firing means
+    either the policy is bypassed (privileged escape) or a writable mount was
+    attached.
+  condition: >
+    open_write and
+    in_monolith_container and
+    (
+      fd.name startswith "/etc/" or
+      fd.name startswith "/root/" or
+      fd.name startswith "/var/lib/secrets/"
+    )
+  output: >
+    Write to sensitive path inside sentinelx monolith
+    (path=%fd.name user=%user.name command=%proc.cmdline
+     image=%container.image.repository
+     k8s_ns=%k8s.ns.name k8s_pod=%k8s.pod.name)
+  priority: CRITICAL
+  tags:
+    - sentinelx
+    - filesystem
+    - persistence
+    - mitre_persistence
+    - mitre_t1543
+
+# --- Rule 4: K8s API call from monolith pod -------------------------------
+
+- rule: SentinelX Monolith Called Kubernetes API
+  desc: >
+    The monolith opened a connection to the in-cluster Kubernetes API service.
+    The monolith has no business talking to the Kubernetes API (no controller
+    logic). This typically indicates token theft + reconnaissance.
+  condition: >
+    outbound and
+    in_monolith_container and
+    (
+      fd.sip.name = "kubernetes.default.svc.cluster.local" or
+      fd.sip.name = "kubernetes.default.svc" or
+      (fd.sport = 443 and fd.sip.name endswith ".svc.cluster.local"
+       and fd.sip.name startswith "kubernetes.")
+    )
+  output: >
+    Sentinelx monolith called the Kubernetes API
+    (dest=%fd.sip dest_port=%fd.sport
+     image=%container.image.repository
+     k8s_ns=%k8s.ns.name k8s_pod=%k8s.pod.name
+     command=%proc.cmdline)
+  priority: NOTICE
+  tags:
+    - sentinelx
+    - k8s
+    - lateral_movement
+    - mitre_discovery
+    - mitre_t1613

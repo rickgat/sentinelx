@@ -1,0 +1,87 @@
+{
+  "id": "data_exfiltration",
+  "name": "Data Exfiltration",
+  "summary": "Suspected or confirmed exfiltration of sensitive data to an external endpoint. Covers cloud-storage upload, DNS tunneling, archive-and-FTP, and SaaS-share abuse.",
+  "steps": [
+    {
+      "id": "prep-data-classification-map",
+      "phase": "preparation",
+      "title": "Confirm current data-classification map + DLP coverage",
+      "description": "Verify the most recent classification map identifies crown-jewel datasets and that DLP egress monitors are healthy on every egress chokepoint.",
+      "default_owner_role": "data_governance_lead",
+      "evidence_hints": ["data-classification map", "DLP health dashboard"]
+    },
+    {
+      "id": "prep-legal-hold-template",
+      "phase": "preparation",
+      "title": "Pre-stage legal hold + breach-notification templates",
+      "description": "Confirm jurisdiction-specific breach-notification templates (GDPR, CCPA, sector regs) and the legal-hold workflow are ready for a same-day trigger.",
+      "default_owner_role": "legal_counsel",
+      "evidence_hints": ["template vault id"]
+    },
+    {
+      "id": "detect-egress-anomaly",
+      "phase": "detection_analysis",
+      "title": "Triage egress anomaly + identify destination",
+      "description": "Pivot from the alert into network flow + DNS + proxy logs. Identify external destination (IP, domain, cloud bucket) and confirm volume / rate.",
+      "default_owner_role": "soc_analyst",
+      "evidence_hints": ["netflow snapshot", "proxy logs", "DNS query log"]
+    },
+    {
+      "id": "detect-data-attribution",
+      "phase": "detection_analysis",
+      "title": "Attribute exfiltrated data to a classification tier",
+      "description": "Sample the egressed payload (where lawful) to attribute it to a classification tier. Distinguish public / internal / confidential / regulated.",
+      "default_owner_role": "data_governance_lead",
+      "evidence_hints": ["DLP match list", "payload sample"]
+    },
+    {
+      "id": "contain-block-egress",
+      "phase": "containment_eradication_recovery",
+      "title": "Block egress destination + revoke share links",
+      "description": "Sinkhole the destination at DNS + perimeter. Revoke SaaS share links and external-collaborator invites tied to the affected resources.",
+      "default_owner_role": "network_operations",
+      "evidence_hints": ["firewall rule id", "SaaS share-revocation log"]
+    },
+    {
+      "id": "contain-revoke-credentials",
+      "phase": "containment_eradication_recovery",
+      "title": "Revoke credentials of the actor identity",
+      "description": "Disable the user / service principal that initiated the egress; invalidate all sessions and refresh tokens; rotate any keys it held.",
+      "default_owner_role": "identity_lead",
+      "evidence_hints": ["IAM audit log"]
+    },
+    {
+      "id": "eradicate-residual-access",
+      "phase": "containment_eradication_recovery",
+      "title": "Remove residual access paths",
+      "description": "Audit for OAuth grants, app passwords, and forwarding rules created by the actor. Remove and document each one.",
+      "default_owner_role": "identity_lead",
+      "evidence_hints": ["OAuth grant audit", "mail forwarding-rule audit"]
+    },
+    {
+      "id": "recover-notify-stakeholders",
+      "phase": "containment_eradication_recovery",
+      "title": "Notify legal + executive stakeholders",
+      "description": "Brief legal, the privacy officer, and the executive comms lead with the confirmed scope and data classification. Open the legal-hold workflow.",
+      "default_owner_role": "incident_commander",
+      "evidence_hints": ["briefing minutes", "legal-hold ticket"]
+    },
+    {
+      "id": "post-customer-notification",
+      "phase": "post_incident_activity",
+      "title": "Execute customer / regulator notification",
+      "description": "If notification thresholds are met, file regulator notice and dispatch customer communications using the pre-staged templates.",
+      "default_owner_role": "legal_counsel",
+      "evidence_hints": ["filed regulator notice", "customer-comms log"]
+    },
+    {
+      "id": "post-dlp-tuning",
+      "phase": "post_incident_activity",
+      "title": "Tune DLP + egress controls",
+      "description": "Translate root cause into new DLP rules, egress-policy changes, and detection content. Add a regression case to the BAS catalog.",
+      "default_owner_role": "soc_engineer",
+      "evidence_hints": ["DLP rule diff", "BAS scenario id"]
+    }
+  ]
+}

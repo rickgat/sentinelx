@@ -1,0 +1,49 @@
+[
+    {
+        "Status": "FAIL",
+        "Provider": "azure",
+        "CheckID": "storage_blob_public_access_level_is_disabled",
+        "Severity": "critical",
+        "SubscriptionId": "00000000-0000-0000-0000-000000000001",
+        "Location": "eastus",
+        "ResourceId": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/golden-rg/providers/Microsoft.Storage/storageAccounts/goldenstorage",
+        "ResourceName": "goldenstorage",
+        "ResourceType": "Microsoft.Storage/storageAccounts",
+        "Description": "Storage account allows anonymous blob access",
+        "Remediation": "Set allowBlobPublicAccess=false on the storage account",
+        "Compliance": {
+            "CIS-2.0": ["3.5"]
+        }
+    },
+    {
+        "Status": "FAIL",
+        "Provider": "azure",
+        "CheckID": "network_nsg_allow_internet_inbound_ssh",
+        "Severity": "high",
+        "SubscriptionId": "00000000-0000-0000-0000-000000000001",
+        "Location": "eastus",
+        "ResourceId": "/Subscriptions/00000000-0000-0000-0000-000000000001/ResourceGroups/golden-rg/Providers/Microsoft.Network/networkSecurityGroups/golden-nsg",
+        "ResourceName": "golden-nsg",
+        "ResourceType": "Microsoft.Network/networkSecurityGroups",
+        "Description": "NSG allows 0.0.0.0/0 inbound on port 22"
+    },
+    {
+        "Status": "FAIL",
+        "Provider": "azure",
+        "CheckID": "sqlserver_tde_encryption_enabled",
+        "Severity": "medium",
+        "SubscriptionId": "00000000-0000-0000-0000-000000000001",
+        "Location": "westeurope",
+        "ResourceId": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/golden-rg/providers/Microsoft.Sql/servers/golden-sql",
+        "ResourceName": "golden-sql",
+        "ResourceType": "Microsoft.Sql/servers"
+    },
+    {
+        "Status": "MUTED",
+        "Provider": "azure",
+        "CheckID": "vm_endpoint_protection_installed",
+        "Severity": "high",
+        "SubscriptionId": "00000000-0000-0000-0000-000000000001",
+        "ResourceId": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/golden-rg/providers/Microsoft.Compute/virtualMachines/jumpbox"
+    }
+]

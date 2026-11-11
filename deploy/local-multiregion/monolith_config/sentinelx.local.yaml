@@ -1,0 +1,206 @@
+# SentinelX local-multiregion: monolith config for the docker-compose harness.
+#
+# This file is a near-copy of `config/sentinelx.dev.example.yaml` with two
+# deltas needed to run inside a container behind nginx:
+#
+#   1. `server.bind_addr` is `0.0.0.0:8080` so the container exposes the
+#      port to the docker network (the dev YAML binds to 127.0.0.1).
+#   2. Database / Redis stay `enabled: false` so the monolith uses the
+#      in-memory adapter mode the dev YAML ships with. This keeps the
+#      smoke focused on the LB + wire path (the parity_check.sh script
+#      validates the Postgres path independently — see ../scripts/parity_local.sh).
+#
+# All secrets below are DEV-ONLY well-known constants and match the
+# strings asserted by tests/load/k6/auth_flow.js and the
+# `services/sx-monolith/tests/login_with_readme_creds.rs` fixture.
+
+server:
+  bind_addr: "0.0.0.0:8080"
+  shutdown_timeout: 5
+  request_timeout: 30
+  max_body_bytes: 1048576
+  rate_limit:
+    limit_per_minute: 6000
+    burst: 600
+    enabled: true
+
+database:
+  url: "postgres://sentinelx:sentinelx-local-pw@pg_primary:5432/sentinelx?sslmode=disable"
+  max_connections: 10
+  min_connections: 1
+  acquire_timeout: 10
+  idle_timeout: 300
+  statement_timeout_ms: 15000
+  migrate_on_start: false
+  enabled: false   # in-memory adapter for the smoke path
+
+redis:
+  url: "redis://localhost:6379/0"
+  pool_size: 10
+  command_timeout: 2
+  enabled: false
+
+bootstrap:
+  enabled: true
+  admin_tenant_slug: default
+  admin_tenant_name: "Default Tenant"
+  admin_tenant_id: "01010101-0101-0101-0101-010101010101"
+  admin_email: admin@sentinelx.dev
+  admin_password_phc: "$argon2id$v=19$m=16384,t=2,p=1$a9cz+KQfmTBM6oSLIw1j1g$S66qSaMbj0LhlxlFACjoKjRkhYUcPuEXYa/WN9GdGLM"
+  seed_demo_data: true
+  analyst_email: analyst@sentinelx.dev
+  analyst_password_phc: "$argon2id$v=19$m=16384,t=2,p=1$6Xysk4ILiH8zMiJcpyetVA$9GkS7IM+mvDjW7Y3CRmRMp3NlGu61rBlSz1DJ/9x2os"
+
+collab:
+  enabled: false
+  base_domain: "oob.sentinelx.invalid"
+  dns_bind: "127.0.0.1:5353"
+  http_bind: "127.0.0.1:9080"
+  answer_ipv4: "127.0.0.1"
+  callback_ttl: 259200
+  http_body_capture_bytes: 4096
+  smtp_max_message_bytes: 65536
+
+cloud:
+  aws:
+    enabled: false
+    access_key_id: ""
+    secret_access_key: ""
+    region: "us-east-1"
+  gcp:
+    enabled: false
+    project_id: ""
+    access_token: ""
+  azure:
+    enabled: false
+    subscription_id: ""
+    tenant_id: ""
+    access_token: ""
+
+jwt:
+  issuer: "https://sentinelx.dev.invalid"
+  audience: "sentinelx-api"
+  signing_key: "DEV_ONLY_HS256_SIGNING_KEY_REPLACE_FOR_ANY_REAL_DEPLOYMENT__"
+  key_id: "kid-dev"
+  algorithm: "HS256"
+  access_ttl: 900
+  refresh_ttl: 604800
+  leeway_seconds: 30
+
+telemetry:
+  service_name: "sx-monolith"
+  environment: "local-multiregion"
+  log_level: "info"
+  log_format: "json"
+  otlp_endpoint: ~
+  prometheus_bind: ~
+  sample_ratio: 0.1
+
+risk:
+  weights:
+    w_severity: 0.25
+    w_exploit: 0.20
+    w_exposure: 0.15
+    w_criticality: 0.20
+    w_business_impact: 0.15
+    w_chain: 0.05
+  kev_boost_factor: 1.25
+  epss_threshold_act: 0.50
+
+engagement:
+  max_concurrent: 16
+  default_intensity: "normal"
+  kill_switch_channel: "sentinelx.killswitch"
+  killswitch_watchdog_interval: 1
+  global_denylist:
+    - kind: "regex"
+      value: "^.*\\.gov$"
+      reason: "government domains require explicit authorization"
+    - kind: "regex"
+      value: "^.*\\.mil$"
+      reason: "military domains require explicit authorization"
+
+iam:
+  password:
+    m_cost: 16384
+    t_cost: 2
+    p_cost: 1
+    output_len: 32
+    salt_len: 16
+  session_inactivity_timeout: 1800
+  mfa_required: false
+  lockout:
+    threshold: 5
+    window: 900
+    duration: 900
+  attempt_email_pepper: "DEV_ONLY_PEPPER_REPLACE_FOR_REAL_DEPLOYMENTS"
+
+discovery:
+  dns_resolvers:
+    - "1.1.1.1:53"
+    - "9.9.9.9:53"
+  max_concurrent_probes: 64
+  per_target_rps_limit: 10
+  http_user_agent: "SentinelX/0.1 (+https://sentinelx.example.invalid)"
+  http_timeout: 10
+  port_scan_max_ports: 1024
+
+oidc:
+  enabled: false
+  issuer: ""
+  audience: ""
+  jwks_url: ""
+  jwks_cache_secs: 3600
+  jit_provision: false
+  default_roles: ["analyst"]
+  default_tenant_id: ~
+  tenant_id_claim: "tenant_id"
+
+mtls:
+  enabled: false
+  cert_path: ""
+  key_path: ""
+  client_ca_path: ""
+  require_client_cert: false
+  reload_interval_secs: 60
+
+anti_abuse:
+  enabled: false
+  replay_window_secs: 300
+  rate_window_secs: 60
+  rate_anomaly_multiplier: 3.0
+  rate_min_samples: 4
+  agent_window_secs: 600
+  agent_threshold: 5
+
+ai_copilot:
+  enabled: false
+  api_key: ""
+  model: "claude-3-5-sonnet-latest"
+  max_tokens: 1024
+  temperature: 0.2
+
+github:
+  enabled: false
+  app_id: ~
+  installation_id: ~
+  private_key: ""
+  personal_access_token: ""
+
+intel_feeds:
+  enabled: false
+  taxii_endpoint: ""
+  taxii_bearer: ""
+  collection_id: ""
+  poll_interval_secs: 3600
+
+graph:
+  neo4j_enabled: false
+  neo4j_uri: ""
+  neo4j_user: ""
+  neo4j_password: ""
+  neo4j_database: ""
+
+secrets:
+  kek:
+    provider: disabled

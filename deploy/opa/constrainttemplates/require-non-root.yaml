@@ -1,0 +1,65 @@
+# Forbids workloads that run as UID 0 (root) or omit a non-root setting.
+# Applies to Deployment, StatefulSet, DaemonSet, and argoproj.io/Rollout.
+#
+# Maps to NIST SC-3, ISO/IEC 27001 A.5.15, SOC2 CC6.6.
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: sxrequirenonroot
+  annotations:
+    description: Require runAsNonRoot=true on all pod containers.
+spec:
+  crd:
+    spec:
+      names:
+        kind: SxRequireNonRoot
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            exemptImages:
+              type: array
+              items:
+                type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package sxrequirenonroot
+
+        import rego.v1
+
+        # Pull the pod template spec out of whichever workload kind we got.
+        pod_spec := input.review.object.spec.template.spec if {
+          input.review.object.spec.template.spec
+        }
+
+        # `containers` covers regular containers; init/ephemeral handled below.
+        violation contains {"msg": msg} if {
+          some container in pod_spec.containers
+          not container_runs_non_root(container, pod_spec)
+          msg := sprintf(
+            "container %q must set securityContext.runAsNonRoot=true and runAsUser>0",
+            [container.name],
+          )
+        }
+
+        violation contains {"msg": msg} if {
+          some container in pod_spec.initContainers
+          not container_runs_non_root(container, pod_spec)
+          msg := sprintf(
+            "initContainer %q must set securityContext.runAsNonRoot=true and runAsUser>0",
+            [container.name],
+          )
+        }
+
+        container_runs_non_root(c, ps) if {
+          c.securityContext.runAsNonRoot == true
+          c.securityContext.runAsUser > 0
+        }
+
+        container_runs_non_root(c, ps) if {
+          # Fall back to the pod-level securityContext.
+          not c.securityContext.runAsNonRoot
+          ps.securityContext.runAsNonRoot == true
+          ps.securityContext.runAsUser > 0
+        }

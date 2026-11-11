@@ -1,0 +1,90 @@
+# Argo Rollouts AnalysisTemplate — the canary gate for sx-monolith.
+#
+# Two metrics are evaluated at every analysis step:
+#
+#   1. error-rate
+#      ----------
+#      Prometheus query:
+#        sum(rate(http_request_errors_total{service="{{args.service-name}}",
+#                                          namespace="{{args.namespace}}"}[5m]))
+#        /
+#        sum(rate(http_requests_total{service="{{args.service-name}}",
+#                                     namespace="{{args.namespace}}"}[5m]))
+#      Pass condition: result < 0.01  (i.e. < 1% error rate over a 5m window)
+#      The successCondition uses the literal threshold from the spec.
+#
+#   2. kill-switch
+#      ----------
+#      Prometheus query:
+#        sum(increase(sx_kill_switch_trips_total{service="{{args.service-name}}",
+#                                                namespace="{{args.namespace}}"}[5m]))
+#      Pass condition: result == 0   (no kill-switch trips during the window)
+#
+# If EITHER metric fails its successCondition the analysis fails and the
+# Rollout aborts and rolls back to the stable ReplicaSet.
+#
+# Mapped controls:
+#   NIST SP 800-53 SI-4 (System Monitoring)
+#   ISO/IEC 27001 A.8.16 (Monitoring activities)
+#   SOC2 CC7.2 (System monitoring)
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: sx-monolith-canary-analysis
+  namespace: sentinelx
+  labels:
+    app.kubernetes.io/name: sx-monolith
+    app.kubernetes.io/part-of: sentinelx
+    app.kubernetes.io/component: rollout-analysis
+spec:
+  args:
+    - name: service-name
+    - name: namespace
+    - name: prometheus-address
+      value: http://prometheus.sentinelx-observability.svc.cluster.local:9090
+  metrics:
+    # -----------------------------------------------------------------
+    # error-rate: 5m windowed error ratio MUST stay below 1%.
+    # -----------------------------------------------------------------
+    - name: error-rate
+      interval: 30s
+      count: 10
+      # 1 failure across 10 samples flips the metric to Failed.
+      failureLimit: 1
+      # 0 inconclusive samples allowed; missing data = abort.
+      inconclusiveLimit: 0
+      successCondition: result[0] < 0.01
+      failureCondition: result[0] >= 0.01
+      provider:
+        prometheus:
+          address: "{{args.prometheus-address}}"
+          query: |
+            sum(rate(http_request_errors_total{
+              service="{{args.service-name}}",
+              namespace="{{args.namespace}}"
+            }[5m]))
+            /
+            sum(rate(http_requests_total{
+              service="{{args.service-name}}",
+              namespace="{{args.namespace}}"
+            }[5m]))
+    # -----------------------------------------------------------------
+    # kill-switch: the monolith exposes sx_kill_switch_trips_total.
+    # ANY increment during the analysis window aborts the canary.
+    # -----------------------------------------------------------------
+    - name: kill-switch
+      interval: 30s
+      count: 10
+      failureLimit: 1
+      inconclusiveLimit: 0
+      successCondition: result[0] == 0
+      failureCondition: result[0] > 0
+      provider:
+        prometheus:
+          address: "{{args.prometheus-address}}"
+          query: |
+            sum(increase(sx_kill_switch_trips_total{
+              service="{{args.service-name}}",
+              namespace="{{args.namespace}}"
+            }[5m]))

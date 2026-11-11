@@ -1,0 +1,21 @@
+{
+  "apiVersion": "admission.k8s.io/v1",
+  "kind": "AdmissionReview",
+  "request": {
+    "uid": "fixture-host-pid",
+    "kind": { "group": "", "version": "v1", "kind": "Pod" },
+    "resource": { "group": "", "version": "v1", "resource": "pods" },
+    "operation": "CREATE",
+    "namespace": "default",
+    "name": "host-pid",
+    "userInfo": {},
+    "object": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "spec": {
+        "hostPID": true,
+        "containers": [{ "name": "x", "image": "gcr.io/foo/x:1.0" }]
+      }
+    }
+  }
+}

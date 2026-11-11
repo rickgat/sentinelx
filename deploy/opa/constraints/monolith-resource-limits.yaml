@@ -1,0 +1,20 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: SxRequireResourceLimits
+metadata:
+  name: sentinelx-resource-limits
+spec:
+  enforcementAction: deny
+  match:
+    namespaces:
+      - sentinelx
+    kinds:
+      - apiGroups:
+          - apps
+        kinds:
+          - Deployment
+          - StatefulSet
+          - DaemonSet
+      - apiGroups:
+          - argoproj.io
+        kinds:
+          - Rollout

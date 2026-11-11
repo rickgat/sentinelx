@@ -1,0 +1,11 @@
+{
+  "cases": {
+    "web-1": [
+      { "asset": "app.example", "check_id": "HDR.HSTS.MISSING", "severity": "medium" },
+      { "asset": "app.example", "check_id": "HDR.CSP.MISSING", "severity": "low" }
+    ],
+    "net-1": [
+      { "asset": "10.0.0.5", "check_id": "net.risky_port.redis", "severity": "high" }
+    ]
+  }
+}

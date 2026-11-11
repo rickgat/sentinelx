@@ -1,0 +1,116 @@
+{{/*
+HIGH-009 — Kubernetes admission webhook (blocking mode).
+
+Registers SentinelX as a `ValidatingWebhookConfiguration` for Pods +
+the workload kinds that embed a PodSpec (Deployment, ReplicaSet,
+StatefulSet, DaemonSet, Job, CronJob). The apiserver POSTs every
+CREATE / UPDATE for those kinds to `POST /v1/runtime/k8s/admit`.
+
+## cert-manager caBundle injection
+
+The webhook is reachable via mTLS from the apiserver. The cluster CA
+bundle is injected into the `clientConfig.caBundle` field by
+cert-manager via the `cert-manager.io/inject-ca-from` annotation on
+the `ValidatingWebhookConfiguration`. The annotation references the
+`Certificate` resource rendered below.
+
+Prereqs:
+  - cert-manager installed in the cluster.
+  - A `cert-manager.io/v1/Issuer` (or `ClusterIssuer`) named in
+    `.Values.admissionWebhook.certManager.issuerRef` exists in the
+    release namespace. The default `selfsigned-issuer` works for a
+    development cluster; production deployments will swap to the
+    cluster's CA `ClusterIssuer`.
+
+Disable by setting `admissionWebhook.enabled: false`.
+*/}}
+{{- if .Values.admissionWebhook.enabled }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "sentinelx.fullname" . }}-admission-cert
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sentinelx.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "sentinelx.fullname" . }}-admission-tls
+  duration: 8760h0m0s      # 365d
+  renewBefore: 720h0m0s    # 30d
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages:
+    - server auth
+  dnsNames:
+    - {{ include "sentinelx.fullname" . }}.{{ .Release.Namespace }}.svc
+    - {{ include "sentinelx.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+  issuerRef:
+    name: {{ .Values.admissionWebhook.certManager.issuerRef.name }}
+    kind: {{ .Values.admissionWebhook.certManager.issuerRef.kind }}
+    {{- with .Values.admissionWebhook.certManager.issuerRef.group }}
+    group: {{ . }}
+    {{- end }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ include "sentinelx.fullname" . }}-admission
+  labels:
+    {{- include "sentinelx.labels" . | nindent 4 }}
+  annotations:
+    # cert-manager injects the CA bundle from the issuer above into
+    # every `clientConfig.caBundle` field of this webhook config.
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "sentinelx.fullname" . }}-admission-cert
+webhooks:
+  - name: validate.k8s.sentinelx.io
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    timeoutSeconds: {{ .Values.admissionWebhook.timeoutSeconds }}
+    # `failurePolicy` decides the cluster behaviour when the webhook is
+    # unreachable. The default `Fail` makes the webhook authoritative —
+    # if SentinelX is down, the cluster rejects new workloads (modulo
+    # the namespaceSelector below). Production deployments that want
+    # graceful degradation should flip to `Ignore` and rely on the
+    # audit trail to surface the bypass.
+    failurePolicy: {{ .Values.admissionWebhook.failurePolicy }}
+    # Hard-skip critical system namespaces so a misconfigured tenant
+    # rule pack cannot brick the cluster. The engine itself ALSO opts
+    # these out via `RulePack::recommended` — this label-based skip is
+    # a defence-in-depth backstop in case an operator hand-rolls a
+    # pack and forgets the kube-system carve-out.
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            {{- range .Values.admissionWebhook.skipNamespaces }}
+            - {{ . | quote }}
+            {{- end }}
+    # Object selector: only workloads we explicitly opt-in. Pods +
+    # the workload kinds that embed a PodSpec.
+    rules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        resources: ["pods"]
+        operations: ["CREATE", "UPDATE"]
+        scope: Namespaced
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+        operations: ["CREATE", "UPDATE"]
+        scope: Namespaced
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        resources: ["jobs", "cronjobs"]
+        operations: ["CREATE", "UPDATE"]
+        scope: Namespaced
+    clientConfig:
+      service:
+        name: {{ include "sentinelx.fullname" . }}
+        namespace: {{ .Release.Namespace }}
+        path: /v1/runtime/k8s/admit
+        port: {{ .Values.service.httpPort }}
+      # caBundle injected by cert-manager from the annotation above.
+{{- end }}

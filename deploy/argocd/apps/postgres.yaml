@@ -1,0 +1,61 @@
+# Child Application: PostgreSQL (Bitnami chart, pinned).
+# Sync wave 0 — must be ready before the monolith comes up.
+# Persistence and HA settings live in deploy/helm/sentinelx/values.yaml
+# overlays via the `postgres-values.yaml` ConfigMap mounted by Argo CD's
+# Helm value-from-Git pattern (see docs/operations/gitops.md).
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sentinelx-postgres
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/name: sentinelx-postgres
+    app.kubernetes.io/part-of: sentinelx
+    app.kubernetes.io/component: database
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: sentinelx
+  sources:
+    - repoURL: https://charts.bitnami.com/bitnami
+      chart: postgresql
+      # Pin EVERY chart version. Renovate bumps this via PR only.
+      targetRevision: 15.5.20
+      helm:
+        releaseName: postgres
+        valueFiles:
+          - $values/deploy/argocd/apps/values/postgres-values.yaml
+    - repoURL: https://github.com/sentinelx/security-check
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: sentinelx-data
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - Replace=false
+      - PruneLast=true
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 10m
+  revisionHistoryLimit: 10
+  ignoreDifferences:
+    # StatefulSet PVC template is immutable post-creation; ignore so a
+    # storage-class drift in values doesn't churn the SS forever.
+    - group: apps
+      kind: StatefulSet
+      jsonPointers:
+        - /spec/volumeClaimTemplates

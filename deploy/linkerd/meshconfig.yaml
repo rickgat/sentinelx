@@ -1,0 +1,73 @@
+# ServiceProfile for sx-monolith.
+# Disables retries on mutating verbs to prevent duplicate engagements and
+# duplicate audit log entries. Read-only routes use a small retry budget.
+#
+# Mapped controls:
+#   NIST SP 800-53 SC-7 (Boundary protection)
+#   ISO/IEC 27001 A.8.21 (Security of network services)
+apiVersion: linkerd.io/v1alpha2
+kind: ServiceProfile
+metadata:
+  name: sx-monolith.sentinelx.svc.cluster.local
+  namespace: sentinelx
+spec:
+  routes:
+    - name: auth-login
+      condition:
+        method: POST
+        pathRegex: /v1/auth/login
+      timeout: 30s
+      isRetryable: false
+      responseClasses:
+        - condition:
+            status:
+              min: 500
+              max: 599
+          isFailure: true
+    - name: engagements-create
+      condition:
+        method: POST
+        pathRegex: /v1/engagements
+      timeout: 30s
+      isRetryable: false
+      responseClasses:
+        - condition:
+            status:
+              min: 500
+              max: 599
+          isFailure: true
+    - name: engagements-list
+      condition:
+        method: GET
+        pathRegex: /v1/engagements(/.*)?
+      timeout: 30s
+      isRetryable: true
+      responseClasses:
+        - condition:
+            status:
+              min: 500
+              max: 599
+          isFailure: true
+    - name: findings-list
+      condition:
+        method: GET
+        pathRegex: /v1/findings(/.*)?
+      timeout: 30s
+      isRetryable: true
+      responseClasses:
+        - condition:
+            status:
+              min: 500
+              max: 599
+          isFailure: true
+    - name: probes
+      condition:
+        pathRegex: /(healthz|readyz)
+      timeout: 5s
+      isRetryable: false
+  # Only read endpoints get a retry budget. POSTs are explicitly excluded
+  # to avoid duplicated side-effects.
+  retryBudget:
+    retryRatio: 0.2
+    minRetriesPerSecond: 10
+    ttl: 10s

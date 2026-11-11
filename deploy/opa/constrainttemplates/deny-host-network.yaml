@@ -1,0 +1,36 @@
+# Forbids spec.template.spec.hostNetwork: true. Pods on hostNetwork bypass
+# Linkerd interception and CNI policies — they cannot be allowed in sentinelx.
+#
+# Maps to NIST SC-7, ISO/IEC 27001 A.8.20.
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: sxdenyhostnetwork
+  annotations:
+    description: Deny pods that opt into hostNetwork.
+spec:
+  crd:
+    spec:
+      names:
+        kind: SxDenyHostNetwork
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package sxdenyhostnetwork
+
+        import rego.v1
+
+        violation contains {"msg": msg} if {
+          input.review.object.spec.template.spec.hostNetwork == true
+          msg := "spec.template.spec.hostNetwork=true is forbidden in the sentinelx namespace"
+        }
+
+        violation contains {"msg": msg} if {
+          input.review.object.spec.template.spec.hostPID == true
+          msg := "spec.template.spec.hostPID=true is forbidden in the sentinelx namespace"
+        }
+
+        violation contains {"msg": msg} if {
+          input.review.object.spec.template.spec.hostIPC == true
+          msg := "spec.template.spec.hostIPC=true is forbidden in the sentinelx namespace"
+        }

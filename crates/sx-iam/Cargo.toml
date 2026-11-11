@@ -1,0 +1,70 @@
+[package]
+name = "sx-iam"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "SentinelX Identity, Authentication, Authorization (RBAC)."
+
+[lints]
+workspace = true
+
+[dependencies]
+sx-config = { workspace = true }
+sx-core = { workspace = true }
+# TOP5-#1-PHASE-1C: sx-xmlsec carries the `XmlDsigVerifier` trait,
+# `LayeredVerifier` wrapper, and `XmlSecError` enum that the
+# `preparse_for_xmlsec` module adapts our existing `pre_parse_gates` to.
+# The `xmlsec1` feature stays OFF here — sx-iam only consumes the
+# default-feature surface (trait, wrapper, error). The FFI linkage is
+# opt-in and will be enabled by a sx-iam-side feature gate in PHASE-2A
+# when the shadow-mode dispatcher lands.
+sx-xmlsec = { workspace = true }
+# P2-007 (impossible-travel): IP→geo lookup lives in sx-rba; the rule
+# evaluator and the SOC anomaly types live in sx-soc.
+sx-rba = { workspace = true }
+sx-soc = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+argon2 = { workspace = true }
+jsonwebtoken = { workspace = true }
+reqwest = { workspace = true }
+secrecy = { workspace = true }
+rand = { workspace = true }
+sha2 = { workspace = true }
+sha1 = "0.10"
+hmac = { workspace = true }
+base64 = { workspace = true }
+hex = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }
+validator = { workspace = true }
+# SAML 2.0 SP core (P0-004)
+quick-xml = { workspace = true }
+flate2 = { workspace = true }
+rsa = { workspace = true }
+x509-parser = "0.17"
+url = { workspace = true }
+# FIDO2 / WebAuthn (passkeys). `danger-credential-internals` is enabled
+# so `WebauthnService::finish_registration` can extract `cred_id`,
+# `public_key` (COSE), `counter`, and `aaguid` into the storage DTO
+# (`RegisteredCredential`). The service never mutates credential
+# internals — it only reads them for persistence — so this feature
+# acts as a read-only escape hatch, not a security downgrade.
+webauthn-rs = { version = "0.5", default-features = false, features = ["attestation", "danger-credential-internals"] }
+
+[dev-dependencies]
+wiremock = { workspace = true }
+# Live-Redis integration tests (gated by `#[ignore]`).
+redis = { workspace = true }
+async-trait = { workspace = true }
+# Signed SAML assertion fixtures (P0-004 integration tests).
+# Needs `pkcs8` for SPKI PEM emission.
+rsa = { version = "0.9", default-features = false, features = ["sha2", "std", "pem"] }
+pkcs8 = { version = "0.10", default-features = false, features = ["alloc", "pem"] }

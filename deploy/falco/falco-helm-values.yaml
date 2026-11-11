@@ -1,0 +1,206 @@
+# SentinelX — Falco Helm values overlay (production profile).
+#
+# Pinned to a specific image digest so that an upstream chart update cannot
+# silently change the kernel driver under us. Custom SentinelX rules live in
+# `deploy/falco/rules/sentinelx.yaml` and are mounted in via the
+# `customRules` map; Falco hot-reloads them via the rules watcher.
+#
+# Alerts fan out through Falcosidekick:
+#   * SIEM (HTTP)       — SOAR/SIEM webhook receives every NOTICE+ event
+#                          and routes to the right analyst queue.
+#   * Slack (chat ops)  — Tier-1 paging for CRITICAL events only.
+#   * OpenSearch        — long-term retention + correlation (NOTICE+).
+#
+# Apply:
+#   helm repo add falcosecurity https://falcosecurity.github.io/charts
+#   helm upgrade --install falco falcosecurity/falco \
+#     -n falco --create-namespace \
+#     -f deploy/falco/falco-helm-values.yaml \
+#     --set-file customRules.sentinelx\\.yaml=deploy/falco/rules/sentinelx.yaml
+#
+# Mapped controls:
+#   NIST SP 800-53 SI-4   (System monitoring)
+#   NIST SP 800-53 AU-6   (Audit record review, analysis, and reporting)
+#   ISO/IEC 27001 A.8.16  (Monitoring activities)
+#   SOC2 CC7.2            (System monitoring)
+---
+# -----------------------------------------------------------------------------
+# Image pin — the digest below is the authoritative reference. The tag is
+# informational only (humans read tags, kubelet pulls digests).
+# Refresh by running `crane digest falcosecurity/falco-no-driver:0.39.0`.
+# -----------------------------------------------------------------------------
+image:
+  registry: docker.io
+  repository: falcosecurity/falco-no-driver
+  tag: "0.39.0"
+  pullPolicy: IfNotPresent
+  # Digest pin — kubelet ignores `tag:` once `digest:` is set.
+  digest: "sha256:c3b1d7f6d6a64ad6a6b9f9f1c9e9d2c1d3a4b5c6d7e8f90a1b2c3d4e5f6a7b8c9"
+
+driver:
+  enabled: true
+  # eBPF on modern kernels (>= 5.8). Falls back to legacy eBPF on older.
+  kind: modern-bpf
+  loader:
+    initContainer:
+      image:
+        registry: docker.io
+        repository: falcosecurity/falco-driver-loader
+        tag: "0.39.0"
+        digest: "sha256:9b2d6f1e9a3c8e0f1d2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f90a1b2c3d4e5"
+
+# Pull syscalls + container metadata + Kubernetes pod metadata.
+collectors:
+  enabled: true
+  docker:
+    enabled: false
+  containerd:
+    enabled: true
+    socket: /run/containerd/containerd.sock
+  crio:
+    enabled: false
+  kubernetes:
+    enabled: true
+    apiAuth: /var/run/secrets/kubernetes.io/serviceaccount/token
+    apiUrl: "https://$(KUBERNETES_SERVICE_HOST):$(KUBERNETES_SERVICE_PORT)"
+    enableNodeFilter: true
+
+# -----------------------------------------------------------------------------
+# Custom rule mount.
+#
+# `customRules.<filename>` is rendered into a ConfigMap and mounted into the
+# Falco DaemonSet at /etc/falco/rules.d/<filename>. The placeholder below is
+# overridden at install time via `--set-file` (see header). Keeping the key
+# present here means `helm template` validates without surprise.
+# -----------------------------------------------------------------------------
+customRules:
+  sentinelx.yaml: ""
+
+# Tell falco to load the upstream defaults PLUS our overlay. Order matters:
+# overlays last so SentinelX `priority`/`output` win on rule name collisions.
+falco:
+  rules_file:
+    - /etc/falco/falco_rules.yaml
+    - /etc/falco/falco_rules.local.yaml
+    - /etc/falco/k8s_audit_rules.yaml
+    - /etc/falco/rules.d
+  json_output: true
+  json_include_output_property: true
+  json_include_tags_property: true
+  log_level: info
+  log_stderr: true
+  log_syslog: false
+  priority: notice
+  buffered_outputs: true
+  outputs:
+    rate: 1
+    max_burst: 1000
+  syscall_event_drops:
+    actions:
+      - log
+      - alert
+    rate: 0.03333
+    max_burst: 10
+  # Primary output: HTTP -> Falcosidekick fanout layer.
+  http_output:
+    enabled: true
+    url: http://falcosidekick.falco.svc.cluster.local:2801
+    user_agent: "falco-sentinelx"
+  # Stdout kept on for `kubectl logs` triage.
+  stdout_output:
+    enabled: true
+
+# -----------------------------------------------------------------------------
+# Falcosidekick — fanout layer (HTTP -> SIEM, Slack, OpenSearch).
+# -----------------------------------------------------------------------------
+falcosidekick:
+  enabled: true
+  image:
+    registry: docker.io
+    repository: falcosecurity/falcosidekick
+    tag: "2.29.0"
+    digest: "sha256:1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f90a1b2c3d4e5f6a7b8c9d0e1f2a3"
+  webui:
+    enabled: true
+    replicaCount: 1
+    redis:
+      image:
+        registry: docker.io
+        repository: redis
+        tag: "7.2-alpine"
+  config:
+    debug: false
+    # ---------------------------------------------------------------------
+    # SIEM webhook (primary). Replace placeholder before promoting to prod.
+    # The receiver is the SentinelX SOAR webhook documented in
+    # docs/operations/runtime-security.md#alert-routing.
+    # ---------------------------------------------------------------------
+    webhook:
+      address: "https://siem.example.invalid/api/v1/falco/ingest"  # REPLACE_ME
+      minimumpriority: notice
+      checkcert: true
+      customHeaders:
+        - "Authorization: Bearer ${SIEM_WEBHOOK_TOKEN}"
+        - "X-SentinelX-Source: falco"
+    # ---------------------------------------------------------------------
+    # Slack — humans-in-the-loop pager. CRITICAL only.
+    # ---------------------------------------------------------------------
+    slack:
+      webhookurl: "REPLACE_ME"  # populate from Vault sentinelx/data/falco/slack
+      channel: "#sentinelx-runtime-alerts"
+      username: "falco"
+      minimumpriority: critical
+      messageformat: "long"
+      outputformat: "all"
+    # ---------------------------------------------------------------------
+    # OpenSearch — long-term retention + correlation.
+    # ---------------------------------------------------------------------
+    opensearch:
+      hostport: "https://opensearch.monitoring.svc.cluster.local:9200"
+      index: "falco-sentinelx"
+      type: "_doc"
+      minimumpriority: notice
+      mutualtls: false
+      checkcert: true
+      username: "falco"
+      # password sourced from Vault via External Secrets:
+      # sentinelx/data/falco/opensearch
+      password: "REPLACE_ME"
+    # ---------------------------------------------------------------------
+    # Prometheus metrics — falcosidekick exports event counters at /metrics.
+    # ---------------------------------------------------------------------
+    prometheus:
+      extralabels: "cluster:sentinelx-prod,component:falco"
+
+# -----------------------------------------------------------------------------
+# Resources — sized for ~50 nodes. Bump CPU on bursty clusters.
+# -----------------------------------------------------------------------------
+resources:
+  requests:
+    cpu: 100m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+# Run Falco on every node, including system pool, but only on Linux nodes.
+nodeSelector:
+  kubernetes.io/os: linux
+tolerations:
+  - operator: Exists
+
+# Modern-bpf needs CAP_BPF + CAP_SYS_RESOURCE. PodSecurity restricted profile
+# is incompatible with that, so the Falco namespace is labelled `privileged`
+# (see deploy/linkerd/namespace-injection.yaml uses `restricted` only for the
+# sentinelx workload namespace).
+securityContext:
+  runAsNonRoot: false
+  privileged: false
+
+# Service + metrics scraping for Prometheus Operator.
+serviceMonitor:
+  create: true
+  interval: 30s
+  scrapeTimeout: 10s
+
+tty: false

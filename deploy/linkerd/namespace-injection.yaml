@@ -1,0 +1,81 @@
+# SentinelX — Linkerd namespace auto-injection.
+#
+# Declares the `sentinelx` namespace with `linkerd.io/inject: enabled` so that
+# every pod created in this namespace is mutated by the Linkerd webhook to
+# include the linkerd2-proxy sidecar (mTLS, traffic shaping, telemetry).
+#
+# Accompanying ConfigMap exposes the proxy injection contract to operators so
+# they can grep for it in CI ("which workloads are meshed?") without needing
+# to query the cluster.
+#
+# Mapped controls:
+#   NIST SP 800-53 SC-8  (Transmission confidentiality + integrity)
+#   NIST SP 800-53 SC-13 (Cryptographic protection)
+#   ISO/IEC 27001 A.8.20 (Network security)
+#   SOC2 CC6.7           (Restriction of data transmission)
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sentinelx
+  labels:
+    name: sentinelx
+    app.kubernetes.io/part-of: sentinelx
+    # Linkerd auto-inject: every new pod here gets the linkerd2-proxy sidecar.
+    linkerd.io/inject: enabled
+    # Default inbound policy: deny everything not explicitly authorized.
+    # Server + AuthorizationPolicy CRs (see server-authorization.yaml) open
+    # only the routes we want callable.
+    config.linkerd.io/default-inbound-policy: deny
+    # PodSecurity admission — restricted profile across the board.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+  annotations:
+    # Resource pinning for the injected sidecar — keeps the proxy lean and
+    # ensures it is scheduled alongside the workload without surprise OOMs.
+    config.linkerd.io/proxy-cpu-request: "100m"
+    config.linkerd.io/proxy-cpu-limit: "1"
+    config.linkerd.io/proxy-memory-request: "64Mi"
+    config.linkerd.io/proxy-memory-limit: "256Mi"
+    # Quiet proxy logs but keep Linkerd-internal at info for forensics.
+    config.linkerd.io/proxy-log-level: "warn,linkerd=info"
+    # Force HTTP/2 upstream where possible (matches the Server CR).
+    config.linkerd.io/skip-outbound-ports: ""
+    config.linkerd.io/skip-inbound-ports: ""
+---
+# Sidecar-injection contract published as a ConfigMap so that:
+#   1. Helm hooks + Argo CD pre-sync jobs can read the expected annotation set
+#      and fail fast if a workload is missing one.
+#   2. Operators have a single source of truth for "what does meshing look
+#      like in SentinelX" without spelunking through deployment templates.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: linkerd-injection-contract
+  namespace: sentinelx
+  labels:
+    app.kubernetes.io/part-of: sentinelx
+    app.kubernetes.io/component: mesh-contract
+  annotations:
+    linkerd.io/inject: enabled
+data:
+  # JSON for ergonomic loading by Argo CD pre-sync hooks.
+  required-pod-annotations.json: |
+    {
+      "linkerd.io/inject": "enabled",
+      "config.linkerd.io/proxy-await": "enabled"
+    }
+  # Plain-text rationale rendered into the cluster for `kubectl describe`.
+  README.txt: |
+    Every pod in the `sentinelx` namespace MUST carry these annotations so
+    that the Linkerd admission webhook injects the sidecar and the
+    application waits for the proxy to be ready before serving traffic:
+
+      linkerd.io/inject: enabled
+      config.linkerd.io/proxy-await: enabled
+
+    Workloads that opt-out (e.g. one-shot migration jobs) MUST set
+    `linkerd.io/inject: disabled` AND list a justification in
+    docs/operations/runtime-security.md#mesh-opt-outs.

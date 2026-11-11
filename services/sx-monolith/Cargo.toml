@@ -1,0 +1,119 @@
+[package]
+name = "sx-monolith"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "SentinelX monolith binary that composes all internal crates."
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "sx-monolith"
+path = "src/main.rs"
+
+[dependencies]
+sx-config = { workspace = true }
+sx-telemetry = { workspace = true }
+sx-api = { workspace = true }
+sx-iam = { workspace = true }
+# TOP5-#1-PHASE-2B: the SAML SP composition root constructs an
+# `XmlDsigVerifier` via `sx_iam::service::saml::build_verifier` and
+# stores the trait object on `EnabledSamlAdapter`. We import the trait
+# (not the FFI surface) from `sx-xmlsec`'s default-feature build, so
+# the monolith does not pull in libxmlsec1 linkage. PHASE-2B's cutover
+# wires the trait through to `process_acs_response_with_verifier`; the
+# config flag `saml.xmldsig.verifier` selects the concrete impl.
+sx-xmlsec = { workspace = true }
+sx-engagement = { workspace = true }
+sx-risk = { workspace = true }
+sx-discovery = { workspace = true }
+sx-audit = { workspace = true }
+sx-core = { workspace = true }
+sx-storage = { workspace = true }
+sx-bas = { workspace = true }
+sx-chaos = { workspace = true }
+sx-rba = { workspace = true }
+sx-collab = { workspace = true }
+sx-ml = { workspace = true }
+sx-cloud = { workspace = true }
+sx-autonomy = { workspace = true }
+sx-graph = { workspace = true }
+sx-report = { workspace = true }
+sx-remediation = { workspace = true }
+sx-compliance = { workspace = true }
+sx-intel-ioc = { workspace = true }
+sx-intel-feeds = { workspace = true }
+sx-twin = { workspace = true }
+sx-soc = { workspace = true }
+sx-ueba = { workspace = true }
+sx-hunt = { workspace = true }
+sx-ai-audit = { workspace = true }
+sx-pentest = { workspace = true }
+sx-log-ingest = { workspace = true }
+sx-scim = { workspace = true }
+sx-mtls = { workspace = true }
+sx-vuln-ingest = { workspace = true }
+sx-secrets = { workspace = true }
+sx-device-trust = { workspace = true }
+sx-soar = { workspace = true }
+sx-dlp = { workspace = true }
+sx-integrations = { workspace = true }
+sx-plugins = { workspace = true }
+sx-ir-playbooks = { workspace = true }
+sx-runtime = { workspace = true }
+sx-webhooks = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { version = "0.7", default-features = false }
+clap = { workspace = true }
+rand = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+secrecy = { workspace = true }
+time = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+csv = "1"
+validator = { workspace = true }
+thiserror = { workspace = true }
+ipnet = { workspace = true }
+url = { workspace = true }
+jsonwebtoken = { workspace = true }
+sqlx = { workspace = true }
+redis = { workspace = true }
+reqwest = { workspace = true }
+futures = { workspace = true }
+base64 = { workspace = true }
+chacha20poly1305 = { workspace = true }
+zeroize = { workspace = true }
+base32 = "0.5"
+hex = { workspace = true }
+sha2 = { workspace = true }
+subtle = { workspace = true }
+octocrab = { workspace = true }
+axum = { workspace = true }
+hmac = { workspace = true }
+# FIDO2 / WebAuthn — the monolith adapter brokers between the
+# `sx-iam::controller::webauthn` use cases (which return opaque
+# `webauthn-rs` state) and the trait-object port surface in `sx-api`.
+webauthn-rs = { version = "0.5", default-features = false, features = ["attestation"] }
+
+[dev-dependencies]
+# Pinned for `CryptoProvider::install_default` calls in the github adapter
+# test module — feature unification across the workspace pulls in both
+# `aws-lc-rs` and `ring`, so rustls' auto-select panics unless a provider
+# is explicitly installed at test boot.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+# Test-util needed for `tokio::time::pause`/`advance` + `Builder::start_paused`
+# used by the continuous-sim adapter unit tests.
+tokio = { workspace = true, features = ["test-util"] }
+# wiremock used by the GRC (P2-009) outbound adapter and the API DAST
+# (P2-013) Postman replay adapter tests to stand up a local mock HTTP
+# target per signal class.
+wiremock = { workspace = true }

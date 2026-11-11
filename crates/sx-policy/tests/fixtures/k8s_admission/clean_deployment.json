@@ -1,0 +1,54 @@
+{
+  "apiVersion": "admission.k8s.io/v1",
+  "kind": "AdmissionReview",
+  "request": {
+    "uid": "fixture-clean-deployment",
+    "kind": { "group": "apps", "version": "v1", "kind": "Deployment" },
+    "resource": { "group": "apps", "version": "v1", "resource": "deployments" },
+    "operation": "CREATE",
+    "namespace": "default",
+    "name": "clean",
+    "userInfo": {},
+    "object": {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "clean",
+        "annotations": {
+          "container.apparmor.security.beta.kubernetes.io/app": "runtime/default"
+        }
+      },
+      "spec": {
+        "template": {
+          "metadata": {
+            "annotations": {
+              "container.apparmor.security.beta.kubernetes.io/app": "runtime/default"
+            }
+          },
+          "spec": {
+            "automountServiceAccountToken": false,
+            "securityContext": {
+              "seccompProfile": { "type": "RuntimeDefault" },
+              "appArmorProfile": { "type": "RuntimeDefault" },
+              "runAsNonRoot": true,
+              "runAsUser": 1000
+            },
+            "containers": [{
+              "name": "app",
+              "image": "gcr.io/foo/app:1.2.3",
+              "resources": { "limits": { "cpu": "500m", "memory": "256Mi" } },
+              "securityContext": {
+                "privileged": false,
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true,
+                "runAsNonRoot": true,
+                "runAsUser": 1000,
+                "capabilities": { "drop": ["ALL"] }
+              }
+            }]
+          }
+        }
+      }
+    }
+  }
+}

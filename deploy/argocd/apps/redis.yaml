@@ -1,0 +1,55 @@
+# Child Application: Redis (Bitnami chart, pinned).
+# Used by sx-monolith for the rate-limiter, idempotency keys, and
+# transient session state. Sync wave 0 — runs in parallel with postgres.
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sentinelx-redis
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/name: sentinelx-redis
+    app.kubernetes.io/part-of: sentinelx
+    app.kubernetes.io/component: cache
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: sentinelx
+  sources:
+    - repoURL: https://charts.bitnami.com/bitnami
+      chart: redis
+      targetRevision: 19.6.4
+      helm:
+        releaseName: redis
+        valueFiles:
+          - $values/deploy/argocd/apps/values/redis-values.yaml
+    - repoURL: https://github.com/sentinelx/security-check
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: sentinelx-data
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - Replace=false
+      - PruneLast=true
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 10m
+  revisionHistoryLimit: 10
+  ignoreDifferences:
+    - group: apps
+      kind: StatefulSet
+      jsonPointers:
+        - /spec/volumeClaimTemplates

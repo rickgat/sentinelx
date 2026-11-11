@@ -1,0 +1,30 @@
+[package]
+name = "sx-graph"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "SentinelX knowledge graph: Neo4j-backed asset/finding/CVE/technique graph + attack-path queries."
+
+[lints]
+workspace = true
+
+[dependencies]
+sx-core = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+time = { workspace = true }
+neo4rs = { workspace = true }
+secrecy = { workspace = true }
+# HIGH-007 — `graph.fallback_engaged` counter shares the global
+# Prometheus registry installed by `sx-telemetry::metrics`. We only
+# reach for the lightweight macro façade — no exporter dependency.
+metrics = { workspace = true }
+
+[dev-dependencies]

@@ -1,0 +1,21 @@
+[package]
+name = "sx-vuln-ingest"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "SentinelX credentialed vulnerability scanner ingest (P0-002): Nessus .nessus and OpenVAS XML parsers, dedup, and check-id registry mapping."
+
+[lints]
+workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+quick-xml = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

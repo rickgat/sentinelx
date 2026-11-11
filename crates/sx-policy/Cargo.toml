@@ -1,0 +1,23 @@
+[package]
+name = "sx-policy"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "SentinelX pluggable policy engine: deterministic JSON DSL evaluator with bounded execution time (WASM Rego backend reserved for future)."
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+async-trait = { workspace = true }
+regex = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]

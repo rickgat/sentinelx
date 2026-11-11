@@ -1,0 +1,11 @@
+# Kustomize base for the SentinelX Rollout resources.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: sentinelx
+resources:
+  - rollout-monolith.yaml
+  - analysistemplate-success-rate.yaml
+  - analysistemplate-latency-p95.yaml
+commonLabels:
+  app.kubernetes.io/part-of: sentinelx
+  app.kubernetes.io/managed-by: argocd

@@ -1,0 +1,169 @@
+name: audit
+
+# LOW-001 — Cargo audit gating.
+# Runs cargo-audit on every push and pull request against `main`. Fails the
+# job on ANY RUSTSEC advisory that is not explicitly listed in
+# `.cargo/audit.toml`. We intentionally do not downgrade severity — the gate
+# is binary. See docs/runbooks/supply-chain.md.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Allow operators to re-run the gate manually (e.g. after merging an ignore
+  # entry to confirm the advisory is now suppressed).
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  cargo-audit:
+    name: cargo-audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + cargo-audit binary
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: cargo-audit
+          # Cache the installed cargo-audit binary across runs.
+          cache-targets: "false"
+          cache-all-crates: "true"
+
+      - name: Install cargo-audit
+        # `--locked` so we always pin the binary to the published lockfile —
+        # cargo-audit itself must not introduce a supply-chain regression.
+        run: cargo install --locked cargo-audit
+
+      - name: Run cargo audit (hard-fail on any unignored advisory)
+        # Notes on the flags:
+        #   --deny warnings        every warning becomes a hard error
+        #   --deny unmaintained    unmaintained crates fail the gate (policy)
+        #   --deny unsound         unsound advisories fail the gate (policy)
+        #   --deny yanked          yanked deps fail the gate (policy)
+        # The ignore list lives in .cargo/audit.toml. cargo-audit picks it up
+        # automatically from the workspace root.
+        run: |
+          cargo audit \
+            --deny warnings \
+            --deny unmaintained \
+            --deny unsound \
+            --deny yanked
+
+  rsa-decrypt-surface:
+    # LOW-001-FU3 defence-in-depth: the RUSTSEC-2023-0071 (Marvin Attack)
+    # ignore in .cargo/audit.toml is gated on "zero RSA decrypt call sites in
+    # the workspace". This job hard-fails if any production (non-test) code
+    # under crates/ or services/ imports or calls the rsa crate's private-key
+    # decrypt surface (RsaPrivateKey / DecryptingKey / rsa .decrypt() call).
+    #
+    # The grep body lives in .github/scripts/rsa_decrypt_grep.sh so the same
+    # check is runnable locally by developers. See docs/runbooks/supply-chain.md
+    # §6.4 (LOW-001-FU3 row) and .cargo/audit.toml for the policy rationale.
+    #
+    # This is a separate job (not a step on cargo-audit) so the audit result
+    # still surfaces independently even if this gate fires.
+    name: rsa-decrypt-surface
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Enforce zero RSA decrypt call sites (LOW-001-FU3)
+        # We invoke via `bash` so the gate does not depend on the executable
+        # bit being preserved in the checkout — this makes the check
+        # symmetric between CI and a plain developer clone.
+        run: bash .github/scripts/rsa_decrypt_grep.sh
+
+  handler-auth-audit:
+    # Ported from nex-erp qc/audit-auth.py Wave 9. Enumerates every axum
+    # route in `crates/sx-api/src/router.rs`, cross-checks against
+    # `AuthConfig::bypass_prefixes`, and hard-fails when:
+    #   * a route lives in `public` but is missing from the bypass
+    #     allowlist (silent fall-open), or
+    #   * an authed route is shadowed by a bypass prefix without being
+    #     in the documented ALLOWED_SHADOWING_PREFIXES exception list.
+    #
+    # Documented alternative-auth surfaces (SCIM per-tenant tokens,
+    # Falco HMAC webhooks, K8s admission client cert) are informational.
+    name: handler-auth-audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run handler auth-coverage audit
+        run: python3 scripts/audit-auth.py --ci
+
+  sbom-and-grype:
+    # Generate an SPDX-JSON + CycloneDX-JSON SBOM per commit via syft,
+    # then attribute vulnerabilities via grype (which cross-references
+    # NVD + GHSA + RustSec). Uploads the SBOM as a build artifact so
+    # release engineering can attach it to the tagged release for
+    # customer-facing supply-chain transparency.
+    #
+    # This job is COMPLEMENTARY to cargo-audit — grype catches
+    # advisories cargo-audit misses (broader database, npm coverage,
+    # fuzz-workspace Cargo.lock coverage).
+    name: sbom-and-grype
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Install syft
+        uses: anchore/sbom-action/download-syft@v0.17.9
+      - name: Install grype
+        uses: anchore/scan-action/download-grype@v6
+      - name: Generate SBOM (SPDX + CycloneDX)
+        run: |
+          syft scan . \
+            --exclude "./target" \
+            --exclude "./web/dashboard/.next" \
+            --exclude "./web/dashboard/node_modules" \
+            --output spdx-json=sentinelx.spdx.json \
+            --output cyclonedx-json=sentinelx.cdx.json \
+            --quiet
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: |
+            sentinelx.spdx.json
+            sentinelx.cdx.json
+          retention-days: 90
+          if-no-files-found: error
+      - name: Grype vulnerability scan
+        # Fails on HIGH or CRITICAL findings. MEDIUM and below surface
+        # in the SARIF for triage but do not block.
+        run: |
+          grype sbom:sentinelx.spdx.json \
+            --output sarif=grype.sarif \
+            --output json=grype.json \
+            --fail-on high
+      - name: Upload grype SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: grype.sarif
+          category: grype

@@ -1,0 +1,25 @@
+[package]
+name = "sx-ai-audit"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "SentinelX AI security check & audit — AI asset inventory / AI-BOM, prompt-injection probe harness, model-file supply-chain scan, OWASP-LLM/MITRE-ATLAS mapping, AI governance controls, and copilot decision audit."
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+time = { workspace = true }
+tracing = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

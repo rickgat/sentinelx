@@ -1,0 +1,32 @@
+[package]
+name = "sx-bas"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "SentinelX Breach & Attack Simulation: safe-by-default operating modes, MITRE-tagged techniques."
+
+[features]
+default = []
+# Enabling this feature unlocks active-exploit paths that send real packets
+# / try real credentials. The crate ships with this OFF and tests assert it.
+dangerous_execution = []
+
+[lints]
+workspace = true
+
+[dependencies]
+sx-core = { workspace = true }
+sx-engagement = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }
+
+[dev-dependencies]

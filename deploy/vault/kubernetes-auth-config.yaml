@@ -1,0 +1,108 @@
+# Vault Kubernetes auth + KV-v2 mount bootstrap, declared as a ConfigMap
+# consumed by the post-install Job. This file is intentionally declarative
+# so it can be diffed and replayed by ArgoCD.
+#
+# Mapped controls:
+#   NIST IA-2, IA-5
+#   ISO/IEC 27001 A.5.16, A.5.17
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-bootstrap-config
+  namespace: vault
+data:
+  bootstrap.sh: |
+    #!/bin/sh
+    set -euo pipefail
+
+    # Authenticate with the root token (mounted from a one-shot Secret).
+    export VAULT_ADDR="https://vault.vault.svc:8200"
+    export VAULT_TOKEN="$(cat /vault-init/root-token)"
+
+    # Enable Kubernetes auth.
+    vault auth enable -path=kubernetes kubernetes || true
+
+    vault write auth/kubernetes/config \
+      kubernetes_host="https://kubernetes.default.svc" \
+      kubernetes_ca_cert=@/var/run/secrets/kubernetes.io/serviceaccount/ca.crt \
+      disable_iss_validation=true
+
+    # Mount KV-v2 at `sentinelx/`.
+    vault secrets enable -path=sentinelx -version=2 kv || true
+
+    # Role binding sx-monolith ServiceAccount -> monolith-secrets policy.
+    vault write auth/kubernetes/role/sx-monolith \
+      bound_service_account_names=sx-monolith \
+      bound_service_account_namespaces=sentinelx \
+      policies=monolith-secrets \
+      audience=vault \
+      token_ttl=1h \
+      token_max_ttl=8h
+
+    # Role binding ops engineers -> ops-readonly policy.
+    vault write auth/kubernetes/role/ops-readonly \
+      bound_service_account_names=ops-readonly \
+      bound_service_account_namespaces=sentinelx \
+      policies=ops-readonly \
+      audience=vault \
+      token_ttl=15m \
+      token_max_ttl=1h
+
+    # Audit device: file-backed (sidecar tail ships to OpenSearch).
+    vault audit enable file file_path=/vault/audit/audit.log || true
+---
+# One-shot Job that runs bootstrap.sh against vault-0 after the StatefulSet
+# is healthy. Requires an unsealed Vault + a root token Secret in this NS.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vault-bootstrap
+  namespace: vault
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vault-bootstrap
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: vault
+      containers:
+        - name: bootstrap
+          image: hashicorp/vault:1.17.3
+          command: ["/bin/sh", "/scripts/bootstrap.sh"]
+          env:
+            - name: VAULT_SKIP_VERIFY
+              value: "false"
+            - name: VAULT_CACERT
+              value: /vault/userconfig/vault-tls/ca.crt
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+            - name: tls
+              mountPath: /vault/userconfig/vault-tls
+              readOnly: true
+            - name: init-token
+              mountPath: /vault-init
+              readOnly: true
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: scripts
+          configMap:
+            name: vault-bootstrap-config
+            defaultMode: 0o755
+        - name: tls
+          secret:
+            secretName: vault-tls
+        - name: init-token
+          secret:
+            # Created out of band from `vault operator init` output; remove
+            # the Secret once bootstrap completes.
+            secretName: vault-init-token

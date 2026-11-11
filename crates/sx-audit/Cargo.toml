@@ -1,0 +1,70 @@
+[package]
+name = "sx-audit"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "SentinelX tamper-evident audit log (hash chain)."
+
+[lints]
+workspace = true
+
+[dependencies]
+sx-core = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+sha2 = { workspace = true }
+hmac = { workspace = true }
+hex = { workspace = true }
+base64 = { workspace = true }
+secrecy = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }
+# RFC 3161 TSA anchoring transport. We use the workspace `reqwest`
+# (rustls, no system OpenSSL). The TSA HTTP body is ASN.1 DER produced
+# by the hand-rolled encoder in `anchor_external` so we do not need a
+# heavyweight ASN.1 dependency for the MVP slice (see module docs for
+# rationale).
+reqwest = { workspace = true }
+
+# RSA-PKCS1-v1.5 verification of TSA reply signatures against the
+# pinned per-tenant CA cert (P1-015). The same crate is already in
+# the workspace dep graph via `sx-iam` (SAML signed assertions) so
+# adding it here does not enlarge the audit surface.
+rsa = { workspace = true }
+rand = { workspace = true }
+
+# AWS SDK adapter for the anchor publisher.
+#
+# LOW-001-FU2 (2026-06-23): bumped from =1.5.5/=1.51.0 to the latest
+# 1.8.x line as part of the rustc 1.88 -> 1.92 MSRV cascade. This is
+# coordinated with `sx-secrets`, `sx-cloud`, `sx-compliance` so the
+# lockfile stays consistent. Feature selection switched from `rustls`
+# (legacy `aws-smithy-runtime/tls-rustls` → rustls 0.21 / webpki 0.101)
+# to `default-https-client` (modern → rustls 0.23 / webpki 0.103.13);
+# see the matching comment in `sx-secrets/Cargo.toml` for the full
+# rationale. Closes RUSTSEC-2026-0098/-0099/-0104 and RUSTSEC-2026-0002.
+aws-config = { version = "=1.8.18", default-features = false, features = ["behavior-version-latest", "default-https-client", "rt-tokio"] }
+aws-sdk-s3 = { version = "=1.136.0", default-features = false, features = ["behavior-version-latest", "default-https-client", "rt-tokio"] }
+
+[dev-dependencies]
+rstest = { workspace = true }
+proptest = { workspace = true }
+wiremock = { workspace = true }
+# `test-util` enables `tokio::time::{pause, advance}` for the
+# virtual-clock-based anchor publisher spawn test.
+tokio = { workspace = true, features = ["test-util"] }
+# Used by the SDK adapter's error-path tests to synthesise a 403 / 404
+# HttpResponse without round-tripping the actual AWS endpoint. Both are
+# already in the dep graph transitively via aws-sdk-s3; naming them
+# here makes the test imports explicit. Pins match the workspace-wide
+# AWS smithy versions used by `sx-compliance` after the LOW-001-FU2
+# cascade (aws-sdk-* 1.8 line).
+aws-smithy-runtime-api = { version = "=1.12.3", default-features = false }
+aws-smithy-types = { version = "=1.5.0", default-features = false }

@@ -1,0 +1,32 @@
+# Canary Service for the sx-monolith Rollout.
+# Argo Rollouts patches THIS Service's selector to route traffic to the
+# new ReplicaSet at each setWeight step. The AnalysisTemplate scrapes
+# Prometheus metrics scoped by `service="sx-monolith-canary"` so it
+# evaluates ONLY the new code path.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sx-monolith-canary
+  namespace: sentinelx
+  labels:
+    app.kubernetes.io/name: sx-monolith
+    app.kubernetes.io/part-of: sentinelx
+    app.kubernetes.io/component: rollout-canary
+  annotations:
+    linkerd.io/inject: enabled
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: sx-monolith
+    # rollouts-pod-template-hash patched in by Argo Rollouts.
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+      appProtocol: http
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP

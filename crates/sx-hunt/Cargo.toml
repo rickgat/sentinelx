@@ -1,0 +1,29 @@
+[package]
+name = "sx-hunt"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "SentinelX threat hunting query language (KQL/SPL-like) — parser, AST, and ClickHouse compiler."
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+# HIGH-005: wire the lightweight `AuditHook` to the tamper-evident
+# `sx-audit` chain. We use `sx_core::value_object::ids::{TenantId, UserId}`
+# in the adapter — the same value objects sx-audit consumes.
+sx-audit = { workspace = true }
+sx-core = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

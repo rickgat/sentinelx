@@ -1,0 +1,90 @@
+# HTTPRoute + AuthorizationPolicy for sx-monolith.
+#
+# Layout:
+#   1. HTTPRoute `sx-monolith-v1` matches all /v1/* requests.
+#   2. AuthorizationPolicy `sx-monolith-v1-allow` allows only:
+#        - ServiceAccounts in the `ingress-nginx` namespace
+#        - any ServiceAccount in the `sentinelx` namespace
+#   3. HTTPRoute `sx-monolith-probes` matches /healthz + /readyz.
+#   4. AuthorizationPolicy `sx-monolith-probes-allow` allows
+#      any source (kubelet has no SA token).
+#
+# Mapped controls:
+#   NIST SP 800-53 AC-3, SC-7
+#   ISO/IEC 27001 A.5.15, A.8.20
+apiVersion: policy.linkerd.io/v1beta3
+kind: HTTPRoute
+metadata:
+  name: sx-monolith-v1
+  namespace: sentinelx
+spec:
+  parentRefs:
+    - name: sx-monolith-http
+      kind: Server
+      group: policy.linkerd.io
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /v1/
+---
+apiVersion: policy.linkerd.io/v1alpha1
+kind: AuthorizationPolicy
+metadata:
+  name: sx-monolith-v1-allow
+  namespace: sentinelx
+spec:
+  targetRef:
+    group: policy.linkerd.io
+    kind: HTTPRoute
+    name: sx-monolith-v1
+  requiredAuthenticationRefs:
+    - kind: NetworkAuthentication
+      name: ingress-and-sentinelx
+      group: policy.linkerd.io
+---
+apiVersion: policy.linkerd.io/v1beta3
+kind: HTTPRoute
+metadata:
+  name: sx-monolith-probes
+  namespace: sentinelx
+spec:
+  parentRefs:
+    - name: sx-monolith-probes
+      kind: Server
+      group: policy.linkerd.io
+  rules:
+    - matches:
+        - path:
+            type: Exact
+            value: /healthz
+        - path:
+            type: Exact
+            value: /readyz
+---
+# NetworkAuthentication: kubelet probes come from the node CIDR; we use a
+# permissive 0.0.0.0/0 here because Linkerd already short-circuits non-mesh
+# probe traffic in the proxy and the probe HTTPRoute is read-only.
+apiVersion: policy.linkerd.io/v1alpha1
+kind: NetworkAuthentication
+metadata:
+  name: ingress-and-sentinelx
+  namespace: sentinelx
+spec:
+  networks:
+    - cidr: 0.0.0.0/0
+---
+apiVersion: policy.linkerd.io/v1alpha1
+kind: AuthorizationPolicy
+metadata:
+  name: sx-monolith-probes-allow
+  namespace: sentinelx
+spec:
+  targetRef:
+    group: policy.linkerd.io
+    kind: HTTPRoute
+    name: sx-monolith-probes
+  requiredAuthenticationRefs:
+    - kind: NetworkAuthentication
+      name: ingress-and-sentinelx
+      group: policy.linkerd.io

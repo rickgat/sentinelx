@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 320" width="1280" height="320" role="img" aria-label="SentinelX — Enterprise Security Platform">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0b0f1a"/>
+      <stop offset="60%" stop-color="#0f1424"/>
+      <stop offset="100%" stop-color="#0a1530"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#22d3ee"/>
+      <stop offset="100%" stop-color="#4f46e5"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.2" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#22d3ee" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#22d3ee" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5" opacity="0.6"/>
+    </pattern>
+    <filter id="glowFilter" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="3" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- background -->
+  <rect width="1280" height="320" fill="url(#bg)"/>
+  <rect width="1280" height="320" fill="url(#grid)"/>
+  <rect width="1280" height="320" fill="url(#glow)"/>
+
+  <!-- shield mark left -->
+  <g transform="translate(96 96)" filter="url(#glowFilter)">
+    <path d="M64 0 L120 22 L120 70 C120 102 96 124 64 132 C32 124 8 102 8 70 L8 22 Z"
+          fill="none" stroke="url(#accent)" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M40 64 L58 82 L92 46" fill="none" stroke="#22d3ee" stroke-width="4"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- wordmark -->
+  <g transform="translate(256 130)">
+    <text font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif"
+          font-size="84" font-weight="800" letter-spacing="-2" fill="#f8fafc">SentinelX</text>
+    <text y="46" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif"
+          font-size="22" font-weight="500" letter-spacing="0.5" fill="#94a3b8">
+      Enterprise Security Platform
+    </text>
+    <text y="78" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif"
+          font-size="16" font-weight="400" letter-spacing="0.3" fill="#64748b">
+      Vulnerability · BAS · EASM · CSPM · Threat Intel · SOC — one Rust binary
+    </text>
+  </g>
+
+  <!-- right side capability chips -->
+  <g transform="translate(880 80)" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14" font-weight="500">
+    <g>
+      <rect x="0" y="0" width="320" height="32" rx="6" fill="#0f172a" stroke="#22d3ee" stroke-opacity="0.4"/>
+      <text x="14" y="21" fill="#22d3ee">▸ axum 0.7 + tokio + hexagonal ports</text>
+    </g>
+    <g transform="translate(0 44)">
+      <rect x="0" y="0" width="320" height="32" rx="6" fill="#0f172a" stroke="#22d3ee" stroke-opacity="0.4"/>
+      <text x="14" y="21" fill="#22d3ee">▸ Next.js 15 + Auth.js v5 + Tailwind</text>
+    </g>
+    <g transform="translate(0 88)">
+      <rect x="0" y="0" width="320" height="32" rx="6" fill="#0f172a" stroke="#22d3ee" stroke-opacity="0.4"/>
+      <text x="14" y="21" fill="#22d3ee">▸ JWT + OIDC + MFA + RBAC wildcards</text>
+    </g>
+    <g transform="translate(0 132)">
+      <rect x="0" y="0" width="320" height="32" rx="6" fill="#0f172a" stroke="#22d3ee" stroke-opacity="0.4"/>
+      <text x="14" y="21" fill="#22d3ee">▸ HMAC audit chain + S3 Object Lock</text>
+    </g>
+  </g>
+
+  <!-- bottom accent line -->
+  <rect x="0" y="316" width="1280" height="4" fill="url(#accent)"/>
+
+  <!-- corner tag -->
+  <g transform="translate(40 280)" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="11" fill="#475569">
+    <text>github.com/rickgat/sentinelx · PolyForm Noncommercial 1.0.0 · © 2026 rickgat</text>
+  </g>
+</svg>

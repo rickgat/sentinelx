@@ -1,0 +1,87 @@
+{
+  "id": "insider_threat",
+  "name": "Insider Threat",
+  "summary": "Confirmed or strongly suspected malicious / negligent behaviour by an authenticated insider. Covers data theft prior to departure, sabotage, and policy-violating access.",
+  "steps": [
+    {
+      "id": "prep-insider-program",
+      "phase": "preparation",
+      "title": "Confirm insider-threat program + HR liaison",
+      "description": "Verify the cross-functional team is on call: HR, legal, physical security, insider-program lead. Confirm escalation thresholds and consent-to-monitor language.",
+      "default_owner_role": "insider_program_lead",
+      "evidence_hints": ["IR comms tree", "consent-to-monitor policy id"]
+    },
+    {
+      "id": "prep-ueba-baseline",
+      "phase": "preparation",
+      "title": "Confirm UEBA baselines are current",
+      "description": "Make sure UEBA baselines for the affected user / department are within the freshness window and that the high-risk-user watch-list is reviewed monthly.",
+      "default_owner_role": "soc_engineer",
+      "evidence_hints": ["UEBA baseline timestamp"]
+    },
+    {
+      "id": "detect-triage-signal",
+      "phase": "detection_analysis",
+      "title": "Triage insider signal",
+      "description": "Confirm signal validity. Pull UEBA anomalies, DLP matches, badge data, VPN logs. Distinguish negligence vs intent.",
+      "default_owner_role": "soc_analyst",
+      "evidence_hints": ["UEBA anomaly id", "DLP match list"]
+    },
+    {
+      "id": "detect-hr-context",
+      "phase": "detection_analysis",
+      "title": "Engage HR + legal for context",
+      "description": "Loop in HR + legal under privilege. Check for active performance plans, recent resignation, or known disputes that change the response posture.",
+      "default_owner_role": "legal_counsel",
+      "evidence_hints": ["HR briefing minutes"]
+    },
+    {
+      "id": "contain-monitor-uplift",
+      "phase": "containment_eradication_recovery",
+      "title": "Uplift monitoring on the actor (with approval)",
+      "description": "Under documented legal approval, enable targeted monitoring (endpoint, mail, removable media). Capture evidence under chain-of-custody.",
+      "default_owner_role": "soc_engineer",
+      "evidence_hints": ["legal approval id", "chain-of-custody form"]
+    },
+    {
+      "id": "contain-access-reduction",
+      "phase": "containment_eradication_recovery",
+      "title": "Reduce privilege without tipping off",
+      "description": "Where possible, silently reduce access to crown-jewel datasets (just-in-time, time-bound) while preserving day-to-day workflow so the actor is not alerted.",
+      "default_owner_role": "identity_lead",
+      "evidence_hints": ["entitlement diff"]
+    },
+    {
+      "id": "eradicate-revoke-access",
+      "phase": "containment_eradication_recovery",
+      "title": "Revoke all access at HR trigger",
+      "description": "At the HR-coordinated trigger (termination, suspension), revoke physical badge, VPN, all SSO entitlements, mail forwarders, and API tokens.",
+      "default_owner_role": "identity_lead",
+      "evidence_hints": ["revocation log"]
+    },
+    {
+      "id": "recover-data-recovery",
+      "phase": "containment_eradication_recovery",
+      "title": "Recover any exfiltrated data",
+      "description": "Issue takedown requests, leverage cloud-storage retention holds, and work with legal to recover or destroy any data the insider exfiltrated.",
+      "default_owner_role": "legal_counsel",
+      "evidence_hints": ["takedown request id"]
+    },
+    {
+      "id": "post-program-improve",
+      "phase": "post_incident_activity",
+      "title": "Update insider-threat program",
+      "description": "Translate the case into program updates: training, UEBA tuning, joiner/mover/leaver hardening. Add a red-team scenario covering the TTPs observed.",
+      "default_owner_role": "insider_program_lead",
+      "evidence_hints": ["program update diff", "red-team scenario id"]
+    },
+    {
+      "id": "post-aar",
+      "phase": "post_incident_activity",
+      "title": "Conduct after-action review under privilege",
+      "description": "Hold a blameless retro under legal privilege. Capture timeline, decisions, and gaps. Track follow-ups to closure.",
+      "default_owner_role": "incident_commander",
+      "evidence_hints": ["AAR document"]
+    }
+  ]
+}

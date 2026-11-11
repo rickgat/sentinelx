@@ -1,0 +1,20 @@
+# The sentinelx namespace. Linkerd auto-injects sidecars into every pod here.
+#
+# Mapped controls:
+#   NIST SP 800-53 SC-8 (Transmission confidentiality + integrity)
+#   ISO/IEC 27001 A.8.20 (Network security)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sentinelx
+  labels:
+    name: sentinelx
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+    linkerd.io/inject: enabled
+    config.linkerd.io/default-inbound-policy: deny
+  annotations:
+    config.linkerd.io/proxy-cpu-request: "100m"
+    config.linkerd.io/proxy-memory-request: "64Mi"
+    config.linkerd.io/proxy-log-level: "warn,linkerd=info"

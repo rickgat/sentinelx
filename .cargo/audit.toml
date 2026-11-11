@@ -1,0 +1,274 @@
+# cargo-audit configuration for the SentinelX workspace.
+#
+# Policy (LOW-001):
+#   - Every RUSTSEC advisory the workspace transitively depends on MUST either
+#     be remediated (bump the dep) or appear in `[advisories.ignore]` below
+#     WITH a justification comment that names a tracking ticket and a remediation
+#     date. The CI gate (.github/workflows/audit.yml) hard-fails on ANY
+#     advisory that is not listed here.
+#   - We do NOT downgrade severity. The audit gate is binary: clean or break.
+#   - "Unmaintained" / "yanked" advisories count the same as CVEs; the only
+#     way to silence them is an entry in `[advisories.ignore]`.
+#
+# Triage ledger (LOW-001-FU1, 2026-06-16):
+#   Wave 1 (2026-06-15) — gate landed fail-closed with 29 open advisories.
+#   Wave 2 (2026-06-16) — 18 of 29 advisories triaged into ignores with
+#   structured justifications; 11 of 29 remediated by dep bumps:
+#     * wasmtime 26.0.1 -> 24.0.7  (10 advisories patched in the 24.x backport)
+#     * validator    0.18 -> 0.20  (idna RUSTSEC-2024-0421 patched, proc-macro-error
+#                                   dropped — replaced by proc-macro-error2 which has
+#                                   its own unmaintained entry below)
+#     * bitflags     2.12.0 -> 2.13.0  (yanked version replaced)
+#   See docs/runbooks/supply-chain.md §5 (LOW-001-FU1 entry) for the per-ID
+#   disposition table.
+#
+# Triage ledger (LOW-001-FU2, 2026-06-23):
+#   Cascade dep bump landed: rustc 1.88 -> 1.92, AWS SDK 1.5 -> 1.8 line,
+#   wasmtime 24.0.7 -> 36.0.11, plus a quinn-proto patch update for the
+#   newly-disclosed RUSTSEC-2026-0185 (DoS). Net effect: 10 wave-2 ignores
+#   removed from the list below (3 rustls-webpki, 6 wasmtime, 1 lru) and
+#   1 unmaintained entry retired (rustls-pemfile 1.x is no longer in the
+#   dep graph; 2.x is no longer flagged). Remaining ignores: 7 entries
+#   covering the 4 still-open follow-ups (FU3..FU6). See
+#   docs/runbooks/supply-chain.md §6 for the per-ID disposition table.
+#
+# Ignoring an advisory (template — copy, fill, get review):
+#
+#   [advisories]
+#   ignore = [
+#     # RUSTSEC-YYYY-NNNN — <crate>@<version>
+#     # Reason: <why this is safe for our exposure surface>
+#     # Tracking: docs/SECURITY_GAP_REMEDIATION_TASKS.md#<ticket-id>
+#     # Re-evaluate by: YYYY-MM-DD
+#     "RUSTSEC-YYYY-NNNN",
+#   ]
+#
+# See docs/runbooks/supply-chain.md for the end-to-end ignore + escalation flow.
+
+[advisories]
+informational_warnings = ["unmaintained", "unsound", "yanked"]
+severity_threshold = "none"
+
+# --- Vulnerabilities (CVE-class) -----------------------------------------------
+#
+# After LOW-001-FU2 (2026-06-23) closed the rustls-webpki / wasmtime /
+# lru / rustls-pemfile constraints, the remaining ignores are gated on
+# the four still-open follow-ups (LOW-001-FU3..FU6). Each entry below
+# is gated on a hard constraint (missing upstream patch, or multi-day
+# API migration) that is itself tracked as a separate ticket. The
+# expiry dates are uniformly 2026-12-15 — six months out, on the
+# explicit triage rationale captured in `docs/runbooks/supply-chain.md`.
+
+ignore = [
+  # ---------------------------------------------------------------------------
+  # quick-xml — RUSTSEC-2026-0194 + RUSTSEC-2026-0195 — REMEDIATED 2026-08-04
+  # ---------------------------------------------------------------------------
+  # Bumped to 0.41.0 on 2026-08-04 after migrating 25 call sites:
+  #   * `BytesText::unescape()` → `xml_content(XmlVersion::default())`
+  #   * `Attribute::unescape_value()` → `decoded_and_normalized_value(...)`
+  #     or `normalized_value(...)` when a reader/decoder is not in scope.
+  # Both changes are semantically equivalent to the 0.36 behaviour.
+  # cargo audit + grype confirm 0 findings post-migration.
+  # (Advisory IDs kept here as historical documentation.)
+
+  # ---------------------------------------------------------------------------
+  # lopdf@0.31.0 — RUSTSEC-2026-0187 (stack overflow on deeply-nested PDF)
+  # ---------------------------------------------------------------------------
+  # STATUS: NON-APPLICABLE (2026-08-04). The workspace only WRITES PDFs
+  # (sx-compliance + sx-report use printpdf 0.7 for report generation).
+  # Zero PDF READ / PARSE paths — verified by grep on 2026-08-04.
+  # The CVE fires only on the read path (Document::load).
+  #
+  # Bump to printpdf 0.12 (which ships lopdf ≥ 0.42) is scheduled as
+  # part of the PDF-generation-refactor epic tracked in the roadmap.
+  "RUSTSEC-2026-0187",
+
+  # ---------------------------------------------------------------------------
+  # rsa@0.9.10 — Marvin Attack (timing sidechannel on RSA decryption).
+  # ---------------------------------------------------------------------------
+  # STATUS: NON-APPLICABLE (LOW-001-FU3 closed 2026-06-25 by exposure-surface
+  # analysis — workspace has ZERO RSA decrypt call sites).
+  #
+  # Probe 2026-06-25: `cargo info rsa@0.10.0-rc.18` confirms latest tag is
+  # 0.10.0-rc.18 (no stable). Upstream issue #626 ("Padding implementation
+  # is not constant-time") remains OPEN per github.com/RustCrypto/RSA/issues/626.
+  # Constant-time modpow ✓ landed; constant-time padding ✗ not yet.
+  #
+  # Exposure-surface analysis (re-grepped 2026-06-25):
+  #   * crates/sx-audit/src/anchor_run.rs — RsaPublicKey + pkcs1v15::VerifyingKey
+  #     + signature::Verifier (TSA-signature VERIFY path only).
+  #   * crates/sx-iam/src/service/saml/response.rs — RsaPublicKey + Pkcs1v15Sign
+  #     (SAML signature VERIFY path only).
+  #   * Zero hits across the workspace for: RsaPrivateKey, DecryptingKey,
+  #     decrypt(, Pkcs1v15Encrypt::decrypt.
+  #
+  # Marvin Attack requires an attacker-controlled DECRYPT oracle. The workspace
+  # NEVER decrypts RSA ciphertexts — only verifies signatures. This advisory
+  # is NON-APPLICABLE to the SentinelX exposure surface. Ignore is permanent
+  # until the dep tree shape changes.
+  #
+  # Re-evaluation trigger: any new use of `RsaPrivateKey` / `DecryptingKey` /
+  # `decrypt(` in the workspace.
+  # CI grep gate at .github/workflows/audit.yml enforces this "no decrypt surface" invariant.
+  #
+  # Tracking: docs/SPRINT_HARDENING_HANDOFF.md (LOW-001-FU3 row) +
+  # docs/runbooks/supply-chain.md §6.3 + §6.4 (FU3 row with 2026-06-25
+  # probe evidence).
+  # Re-evaluate by: only on workspace decrypt-surface change.
+  "RUSTSEC-2023-0071",
+
+  # hickory-proto@0.24.4 RUSTSEC-2026-0119 (O(n^2) name-compression DoS) was
+  # remediated by LOW-001-FU4 on 2026-06-23: workspace bumped to hickory 0.26.
+
+  # --- Unmaintained crates (RUSTSEC informational warnings) ------------------
+  #
+  # Each is reached transitively via a crate we cannot drop in this triage
+  # cycle without a broader refactor. We do NOT consume any of these crates
+  # directly from sx-* code.
+
+  # backoff@0.4.0 — unmaintained.
+  # STATUS: ACCEPTED-RISK (LOW-001-FU5 closed 2026-06-25 as policy decision —
+  # no remediation path without policy change).
+  #
+  # Probe 2026-06-25: `cargo search neo4rs` confirms latest stable is 0.8.0,
+  # latest pre-release is 0.9.0-rc.10. neo4rs 1.x is NOT on crates.io. The
+  # 0.9 line dropped the `backoff` dependency per upstream commit history,
+  # but PO policy 2026-06-23 (docs/runbooks/supply-chain.md §6.4) prohibits
+  # pinning pre-release versions on the critical-path graph driver.
+  #
+  # Alternatives evaluated 2026-06-25 (see docs/runbooks/
+  # supply-chain-alternative-paths-2026-06-25.md):
+  #   * Pin `0.9.0-rc.10` (3-4 days work) — REJECTED by PO policy.
+  #   * Switch to bolt-client (5-7 days work) — DEFERRED; tracked in
+  #     alternative-paths doc for future evaluation.
+  #   * Direct Bolt over tokio-tungstenite — REJECTED (effort > value).
+  #
+  # The advisory is unmaintained-only; no CVE. Acceptable risk under the
+  # current dependency tree.
+  #
+  # Re-evaluation trigger: neo4rs 0.9 STABLE ships OR PO policy changes.
+  # Tracking: docs/SPRINT_HARDENING_HANDOFF.md (LOW-001-FU5 row) +
+  # docs/runbooks/supply-chain-alternative-paths-2026-06-25.md row 1.
+  # Re-evaluate by: 2026-09-25 (quarterly probe).
+  "RUSTSEC-2025-0012",
+
+  # instant@0.1.13 — unmaintained.
+  # STATUS: ACCEPTED-RISK (LOW-001-FU6 closed 2026-06-25 as co-blocked on FU5).
+  #
+  # Probe 2026-06-25 (cargo tree -i instant): single dep chain — pulled
+  # by neo4rs 0.8 -> backoff 0.4 -> instant. The 0.9 line drops backoff
+  # (and thus instant) but pre-release policy gates it under FU5. Zero
+  # RUNTIME exposure: instant is wasm-only when used by backoff; native
+  # targets get std::time, so the abandonware path is dead code at our
+  # link-time configuration.
+  #
+  # Re-evaluation trigger: same as FU5 (neo4rs 0.9 stable ships).
+  # Tracking: docs/SPRINT_HARDENING_HANDOFF.md (LOW-001-FU6 row) +
+  # docs/runbooks/supply-chain-alternative-paths-2026-06-25.md row 4.
+  # Re-evaluate by: 2026-09-25 (same as FU5).
+  "RUSTSEC-2024-0384",
+
+  # paste@1.0.15 — author abandoned.
+  # STATUS: ACCEPTED-RISK (LOW-001-FU6 closed 2026-06-25; rationale corrected
+  # 2026-06-25 — earlier comment was stale).
+  #
+  # Probe 2026-06-25 (cargo tree -i paste): single dep chain — pulled by
+  # neo4rs 0.8 -> paste. NOT by metrics-exporter-prometheus (the earlier
+  # rationale was stale; the wasmtime/metrics chain was closed by FU2 on
+  # 2026-06-23). Co-blocked on FU5: neo4rs 0.9 drops paste alongside
+  # backoff/instant.
+  #
+  # Alternative `pastey@0.2.3` (maintained successor fork) exists but
+  # neo4rs itself does not pull it; swapping at our level requires a fork
+  # patch on neo4rs, deferred as out-of-policy.
+  #
+  # Compile-time only (proc-macro); produces no runtime code. No CVE.
+  #
+  # Re-evaluation trigger: same as FU5 (neo4rs 0.9 stable ships).
+  # Tracking: docs/SPRINT_HARDENING_HANDOFF.md (LOW-001-FU6 row) +
+  # docs/runbooks/supply-chain-alternative-paths-2026-06-25.md row 2.
+  # Re-evaluate by: 2026-09-25 (same as FU5).
+  "RUSTSEC-2024-0436",
+
+  # proc-macro-error2@2.0.1 — unmaintained (replaces the prior
+  # proc-macro-error@1.0.4 advisory after the validator 0.18 -> 0.20 bump).
+  # Reason: pulled by validator-derive (compile-time only). No alternative
+  # ships the same `Diagnostic` surface; compile-time only — no runtime CVE.
+  # Tracking: docs/SECURITY_GAP_REMEDIATION_TASKS.md (LOW-001-FU6 — track
+  # validator > 0.20 line when proc-macro-error2 is dropped upstream).
+  # Re-evaluate by: 2026-12-15
+  "RUSTSEC-2026-0173",
+
+  # rustls-pemfile@2.2.0 — unmaintained (LOW-001-FU6 partial close, 2026-06-25;
+  # tonic parent dropped 2026-07-04 by LOW-001-FU6-TONIC-OTEL cascade).
+  #
+  # History:
+  #   * FU6 wave-3 (2026-06-25) dropped redis@0.27 -> 1.2 + axum-server@0.7
+  #     -> 0.8 + kube@0.96 -> 4.0 (with k8s-openapi 0.23 -> 0.28). Three of
+  #     the six original parents switched to rustls-pki-types.
+  #   * FU6-TONIC-OTEL (2026-07-04) cascaded tonic 0.12 -> 0.14 alongside
+  #     opentelemetry 0.27 -> 0.32 / tracing-opentelemetry 0.28 -> 0.33.
+  #     tonic 0.14 dropped the umbrella `tls` feature and the internal
+  #     rustls-pemfile transitive — verified via `cargo tree -i rustls-pemfile`
+  #     post-cascade.
+  #
+  # Remaining parents of rustls-pemfile@2.2.0 in the workspace after
+  # 2026-07-04:
+  #   * neo4rs@0.8.0 — direct + via its rustls-native-certs@0.7 transitive
+  #     (no upstream release yet that drops rustls-pemfile; FU5 holdout).
+  #   * sx-mtls (local) — direct usage of rustls-pemfile API for PEM parsing;
+  #     migration to rustls-pki-types::pem tracked under LOW-001-FU5.
+  #
+  # The upstream successor is `rustls-pki-types`, picked up automatically
+  # when each remaining parent crate cuts a release that switches over.
+  # Tracking: docs/SECURITY_GAP_REMEDIATION_TASKS.md (LOW-001-FU6 — track
+  # neo4rs / sx-mtls migration; tonic parent CLOSED by TONIC-OTEL cascade).
+  # Re-evaluate by: 2026-12-15
+  "RUSTSEC-2025-0134",
+
+  # --- Closed by LOW-001-FU2 (2026-06-23) -------------------------------------
+  # The following 10 entries were removed in this commit:
+  #   * RUSTSEC-2026-0098 / -0099 / -0104  (rustls-webpki 0.101.7 ×3) —
+  #     closed by AWS SDK 1.5 -> 1.8 cascade + switching `aws-sdk-*` /
+  #     `aws-config` from the legacy `rustls` feature to
+  #     `default-https-client` (rustls 0.23 + rustls-webpki 0.103.13).
+  #   * RUSTSEC-2026-0086 / -0088 / -0089 / -0094 / -0095 / -0096
+  #     (wasmtime 24.0.7 ×6) — closed by wasmtime 24.0.7 -> 36.0.11 bump.
+  #   * RUSTSEC-2026-0002 (lru 0.12.5) — closed by AWS SDK cascade pulling
+  #     lru 0.16.4.
+  #
+  # Re-added in this same commit because the closure isn't complete:
+  #   * RUSTSEC-2025-0134 (rustls-pemfile 2.2.0) — 1.0.4 instance was
+  #     dropped by the cascade, but 2.2.0 is still pulled by tonic +
+  #     redis + neo4rs + kube + axum-server. Now tracked under FU6
+  #     (see the entry above).
+
+  # ---------------------------------------------------------------------------
+  # CI-FF (2026-11-07) — residue after the advisory sweep that patched every
+  # in-range vuln via `cargo update` / exact pins (wasmtime 36.0.20, rustls
+  # 0.23.46, quinn-proto 0.11.19, chacha20, num-bigint, event-listener, spin,
+  # h2, tokio). The entries below have NO in-range fix: they require a MAJOR
+  # bump of a pinned transitive parent, or the crate is unmaintained/unsound
+  # with no successor in range. Kept in sync with the deny.toml ignore list.
+  # Re-evaluate by: 2026-12-15 (dependency-upgrade wave).
+  # ---------------------------------------------------------------------------
+  # crypto-bigint 0.5.x — timing variability; fix is 0.7.6 (major). Pulled
+  # transitively; parent pins 0.5. Not on a key-decrypt hot path.
+  "RUSTSEC-2026-0387",
+  # webpki-roots 0.26.x — bundled emSign roots; fix is 1.0.10 (major).
+  # Transitive via the HTTP/cert-store stack; our own TLS trust is rustls.
+  "RUSTSEC-2026-0381",
+  # lru — unsound LruCache::pop() panic-safety (UAF); no in-range fix.
+  "RUSTSEC-2026-0253",
+  # pin-utils — unmaintained; tiny transitive proc-macro/util leaf.
+  "RUSTSEC-2026-0441",
+  # ttf-parser — unmaintained; transitive via the font/PDF-render path.
+  "RUSTSEC-2026-0192",
+  # unsafe-libyaml — unmaintained; transitive YAML parser.
+  "RUSTSEC-2024-0449",
+]
+
+# Deny flags live on the CLI invocation (see `.github/workflows/audit.yml`
+# and the `make audit` target). We intentionally do not declare an
+# `[output]` block here — the CI gate is the single source of truth for
+# severity policy, and a stale config block here would be a footgun.

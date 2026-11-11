@@ -1,0 +1,63 @@
+# Forbids privileged containers, allowPrivilegeEscalation, and non-empty
+# capability adds. capabilities.drop must include ALL.
+#
+# Maps to NIST AC-6, ISO/IEC 27001 A.8.2, SOC2 CC6.3.
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: sxdenyprivileged
+  annotations:
+    description: Deny privileged containers and dangerous capabilities.
+spec:
+  crd:
+    spec:
+      names:
+        kind: SxDenyPrivileged
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package sxdenyprivileged
+
+        import rego.v1
+
+        pod_spec := input.review.object.spec.template.spec if {
+          input.review.object.spec.template.spec
+        }
+
+        violation contains {"msg": msg} if {
+          some container in pod_spec.containers
+          container.securityContext.privileged == true
+          msg := sprintf("container %q must not run privileged", [container.name])
+        }
+
+        violation contains {"msg": msg} if {
+          some container in pod_spec.containers
+          container.securityContext.allowPrivilegeEscalation == true
+          msg := sprintf(
+            "container %q must set allowPrivilegeEscalation=false",
+            [container.name],
+          )
+        }
+
+        violation contains {"msg": msg} if {
+          some container in pod_spec.containers
+          some added in container.securityContext.capabilities.add
+          msg := sprintf(
+            "container %q may not add capability %q",
+            [container.name, added],
+          )
+        }
+
+        violation contains {"msg": msg} if {
+          some container in pod_spec.containers
+          not drops_all(container)
+          msg := sprintf(
+            "container %q must drop ALL capabilities",
+            [container.name],
+          )
+        }
+
+        drops_all(c) if {
+          some dropped in c.securityContext.capabilities.drop
+          dropped == "ALL"
+        }

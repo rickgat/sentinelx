@@ -1,0 +1,19 @@
+{
+  "rule": "Launch Privileged Container",
+  "priority": "Critical",
+  "output": "Privileged container started (user=root container_id=abcd1234 container_image=docker.io/library/nginx k8s.ns=prod k8s.pod=web-7c4d-abc)",
+  "time": "2026-06-12T10:30:01.123456789Z",
+  "source": "syscall",
+  "output_fields": {
+    "container.id": "abcd1234",
+    "container.image.repository": "docker.io/library/nginx",
+    "container.privileged": "true",
+    "k8s.ns.name": "prod",
+    "k8s.pod.name": "web-7c4d-abc",
+    "proc.name": "runc",
+    "proc.cmdline": "runc --root /run/runc create",
+    "user.name": "root"
+  },
+  "hostname": "node-01",
+  "tags": ["container", "mitre_privilege_escalation", "T1611"]
+}

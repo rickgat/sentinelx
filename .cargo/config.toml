@@ -1,0 +1,9 @@
+[build]
+rustflags = ["-D", "warnings"]
+
+[net]
+git-fetch-with-cli = true
+
+[term]
+verbose = false
+color = "auto"
